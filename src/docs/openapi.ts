@@ -3,6 +3,7 @@ import { authDocs } from '../modules/admin/auth/docs.ts';
 import { brandsDocs } from '../modules/admin/brands/docs.ts';
 import { categoriesDocs } from '../modules/admin/categories/docs.ts';
 import { mediaDocs } from '../modules/admin/media/docs.ts';
+import { productsDocs } from '../modules/admin/products/docs.ts';
 import { rolesDocs } from '../modules/admin/roles/docs.ts';
 import { staffDocs } from '../modules/admin/staff/docs.ts';
 
@@ -35,6 +36,7 @@ export function buildOpenApiDocument() {
       ...categoriesDocs,
       ...brandsDocs,
       ...mediaDocs,
+      ...productsDocs,
     },
   });
 }

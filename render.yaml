@@ -30,7 +30,7 @@ services:
       - key: S3_REGION
         value: ap-southeast-1
       - key: S3_BUCKET
-        value: papertree-media
+        value: papertree
       - key: S3_ACCESS_KEY_ID
         sync: false
       - key: S3_SECRET_ACCESS_KEY
