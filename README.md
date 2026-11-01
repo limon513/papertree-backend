@@ -39,6 +39,7 @@ Node 26 (runs TypeScript directly), Express 5, PostgreSQL, Drizzle ORM, zod.
 | `npm run db:migrate` | Apply migrations to the database |
 | `npm run db:seed` | Create the Super Admin role and first admin (safe to run again) |
 | `npm run db:studio` | Browse the database in the browser |
+| `npm run db:seed-demo` | Add the sample shop: categories, brands and 43 products with pictures (safe to run again; existing items are skipped) |
 | `npm run icons:build` | Write `public/icons/*.svg` after changing the list in `src/lib/catalog-icons.ts` |
 
 ## Images and icons
