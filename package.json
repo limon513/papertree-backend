@@ -14,7 +14,8 @@
     "db:migrate": "node --env-file-if-exists=.env src/db/migrate.ts",
     "db:seed": "node --env-file-if-exists=.env src/db/seed.ts",
     "db:studio": "drizzle-kit studio",
-    "icons:build": "node scripts/build-icons.ts"
+    "icons:build": "node scripts/build-icons.ts",
+    "db:seed-demo": "node --env-file-if-exists=.env src/db/seed-demo.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",
