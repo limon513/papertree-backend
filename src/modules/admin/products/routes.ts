@@ -14,8 +14,8 @@ import { parseId } from '../../../lib/ids.ts';
 import { audit } from '../../../lib/audit.ts';
 import { currentAdmin } from '../../../middleware/admin-auth.ts';
 import { withImages } from '../media/view.ts';
-import { productBody, productListQuery, PRODUCT_STATUSES } from './schemas.ts';
-import { duplicateProduct, getProduct, saveProduct } from './service.ts';
+import { productBody, productBulkBody, productListQuery, PRODUCT_STATUSES, stockUpdateBody } from './schemas.ts';
+import { bulkUpdate, duplicateProduct, getProduct, saveProduct, updateStock } from './service.ts';
 
 /** Mounted behind requireAdmin + requireModule('products'). */
 export const productsRouter = Router();
@@ -51,7 +51,37 @@ productsRouter.get('/', async (req, res) => {
       ),
     );
   }
+  // Stock of one variant, all locations together.
+  const variantQty = sql`coalesce((select sum(${inventoryLevels.quantity}) from ${inventoryLevels} where ${inventoryLevels.variantId} = ${productVariants.id}), 0)`;
+  if (q.stock) {
+    filters.push(
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(productVariants)
+          .where(
+            and(
+              eq(productVariants.productId, products.id),
+              eq(productVariants.trackStock, true),
+              q.stock === 'out'
+                ? sql`${variantQty} <= 0`
+                : sql`${variantQty} > 0 and ${variantQty} <= ${productVariants.lowStockThreshold}`,
+            ),
+          ),
+      ),
+    );
+  }
   const where = and(...filters, q.status ? eq(products.status, q.status) : undefined);
+
+  const levelSums = db
+    .select({
+      variantId: inventoryLevels.variantId,
+      quantity: sql<number>`sum(${inventoryLevels.quantity})`.as('quantity'),
+    })
+    .from(inventoryLevels)
+    .groupBy(inventoryLevels.variantId)
+    .as('level_sums');
+  const qty = sql`coalesce(${levelSums.quantity}, 0)`;
 
   const variantStats = db
     .select({
@@ -61,21 +91,18 @@ productsRouter.get('/', async (req, res) => {
       priceMax: sql<number>`max(${productVariants.price})`.mapWith(Number).as('price_max'),
       onSale: sql<boolean>`bool_or(${productVariants.salePrice} is not null)`.as('on_sale'),
       tracked: sql<boolean>`bool_or(${productVariants.trackStock})`.as('tracked'),
+      totalStock: sql<number>`sum(${qty}) filter (where ${productVariants.trackStock})`.mapWith(Number).as('total_stock'),
+      variantsOut: sql<number>`count(*) filter (where ${productVariants.trackStock} and ${qty} <= 0)`
+        .mapWith(Number)
+        .as('variants_out'),
+      variantsLow: sql<number>`count(*) filter (where ${productVariants.trackStock} and ${qty} > 0 and ${qty} <= ${productVariants.lowStockThreshold})`
+        .mapWith(Number)
+        .as('variants_low'),
     })
     .from(productVariants)
+    .leftJoin(levelSums, eq(levelSums.variantId, productVariants.id))
     .groupBy(productVariants.productId)
     .as('variant_stats');
-
-  const stockStats = db
-    .select({
-      productId: productVariants.productId,
-      totalStock: sql<number>`sum(${inventoryLevels.quantity})`.mapWith(Number).as('total_stock'),
-    })
-    .from(inventoryLevels)
-    .innerJoin(productVariants, eq(productVariants.id, inventoryLevels.variantId))
-    .where(eq(productVariants.trackStock, true))
-    .groupBy(productVariants.productId)
-    .as('stock_stats');
 
   const mainImageId = sql<number | null>`(
     select ${productImages.mediaId} from ${productImages}
@@ -88,7 +115,9 @@ productsRouter.get('/', async (req, res) => {
       ? [asc(products.name)]
       : q.sort === 'price'
         ? [asc(variantStats.priceMin), asc(products.name)]
-        : [desc(products.updatedAt)];
+        : q.sort === 'stock'
+          ? [sql`${variantStats.totalStock} asc nulls last`, asc(products.name)]
+          : [desc(products.updatedAt)];
 
   const [rows, [totalRow], statusRows] = await Promise.all([
     db
@@ -106,12 +135,13 @@ productsRouter.get('/', async (req, res) => {
         priceMax: variantStats.priceMax,
         onSale: variantStats.onSale,
         tracked: variantStats.tracked,
-        totalStock: stockStats.totalStock,
+        totalStock: variantStats.totalStock,
+        variantsOut: variantStats.variantsOut,
+        variantsLow: variantStats.variantsLow,
       })
       .from(products)
       .leftJoin(brands, eq(brands.id, products.brandId))
       .leftJoin(variantStats, eq(variantStats.productId, products.id))
-      .leftJoin(stockStats, eq(stockStats.productId, products.id))
       .where(where)
       .orderBy(...orderBy)
       .limit(q.pageSize)
@@ -138,6 +168,8 @@ productsRouter.get('/', async (req, res) => {
     priceMax: r.priceMax ?? 0,
     onSale: r.onSale ?? false,
     totalStock: r.tracked ? (r.totalStock ?? 0) : null,
+    variantsOut: r.variantsOut ?? 0,
+    variantsLow: r.variantsLow ?? 0,
     updatedAt: r.updatedAt,
   }));
 
@@ -148,6 +180,20 @@ productsRouter.get('/', async (req, res) => {
     pageSize: q.pageSize,
     counts: { all: statusRows.reduce((sum, r) => sum + r.n, 0), ...counts },
   });
+});
+
+productsRouter.post('/bulk', async (req, res) => {
+  const input = productBulkBody.parse(req.body);
+  const updated = await bulkUpdate(input);
+  await audit(req, { action: `product.bulk.${input.action}`, entityType: 'product', after: input });
+  res.json({ updated });
+});
+
+productsRouter.patch('/stock', async (req, res) => {
+  const input = stockUpdateBody.parse(req.body);
+  const { levels, productIds } = await updateStock(input, currentAdmin(req).id);
+  await audit(req, { action: 'product.stock', entityType: 'product', entityId: productIds.join(','), after: input });
+  res.json({ levels });
 });
 
 productsRouter.get('/:id', async (req, res) => {

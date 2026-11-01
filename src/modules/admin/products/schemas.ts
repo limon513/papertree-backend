@@ -165,10 +165,48 @@ export const productListQuery = z.object({
   status: z.enum(PRODUCT_STATUSES).optional(),
   brandId: z.coerce.number().int().positive().optional(),
   categoryId: z.coerce.number().int().positive().optional(),
-  sort: z.enum(['updated', 'name', 'price']).default('updated'),
+  /** low: a variant is at or below its low-stock level. out: a variant has no stock. */
+  stock: z.enum(['low', 'out']).optional(),
+  sort: z.enum(['updated', 'name', 'price', 'stock']).default('updated'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
+
+const productIds = z
+  .array(id)
+  .min(1, { error: 'Choose at least one product' })
+  .max(500, { error: 'At most 500 products at a time' })
+  .transform((ids) => [...new Set(ids)]);
+
+/** One change applied to many products at once. */
+export const productBulkBody = z
+  .discriminatedUnion('action', [
+    z.object({ action: z.literal('set-status'), ids: productIds, status: z.enum(PRODUCT_STATUSES) }),
+    z.object({ action: z.literal('add-category'), ids: productIds, categoryId: id }),
+    z.object({ action: z.literal('remove-category'), ids: productIds, categoryId: id }),
+    z.object({ action: z.literal('set-brand'), ids: productIds, brandId: id.nullable() }),
+    z.object({ action: z.literal('delete'), ids: productIds }),
+  ])
+  .meta({ id: 'ProductBulkBody' });
+
+/** Quick stock changes, e.g. after a delivery arrives. */
+export const stockUpdateBody = z
+  .object({
+    changes: z
+      .array(
+        z.object({
+          variantId: id,
+          locationId: id,
+          quantity: z.number({ error: 'Enter the stock' }).int({ error: 'Stock must be a whole number' }).min(-99_999).max(9_999_999),
+          /** The quantity the form showed. Only the difference is applied, so orders in between are kept. */
+          baseQuantity: z.number().int().optional(),
+        }),
+      )
+      .min(1)
+      .max(500),
+    note: optionalText(200).default(null),
+  })
+  .meta({ id: 'StockUpdateBody' });
 
 // ---- Responses (used for docs) ----
 
@@ -234,6 +272,10 @@ export const productListItem = z.object({
   onSale: z.boolean(),
   /** Sum over variants that track stock. null when no variant tracks stock. */
   totalStock: z.number().nullable(),
+  /** Variants (that track stock) with no stock. */
+  variantsOut: z.number(),
+  /** Variants at or below their low-stock level, but not out. */
+  variantsLow: z.number(),
   updatedAt: z.iso.datetime(),
 });
 
@@ -252,3 +294,12 @@ export const stockLocationList = z
     items: z.array(z.object({ id: z.number(), name: z.string(), isDefault: z.boolean(), isActive: z.boolean() })),
   })
   .meta({ id: 'StockLocationList' });
+
+export const bulkResult = z.object({ updated: z.number() }).meta({ id: 'ProductBulkResult' });
+
+export const stockUpdateResult = z
+  .object({ levels: z.array(z.object({ variantId: z.number(), locationId: z.number(), quantity: z.number() })) })
+  .meta({ id: 'StockUpdateResult' });
+
+export type ProductBulkInput = z.infer<typeof productBulkBody>;
+export type StockUpdateInput = z.infer<typeof stockUpdateBody>;

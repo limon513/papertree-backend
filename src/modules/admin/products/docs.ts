@@ -1,6 +1,17 @@
 import type { ZodOpenApiPathsObject } from 'zod-openapi';
 import { adminAuth, errors, idParam, json, jsonBody, noContent } from '../../../docs/common.ts';
-import { MAX_VARIANTS, productBody, productList, productListQuery, productSchema, stockLocationList } from './schemas.ts';
+import {
+  bulkResult,
+  MAX_VARIANTS,
+  productBody,
+  productBulkBody,
+  productList,
+  productListQuery,
+  productSchema,
+  stockLocationList,
+  stockUpdateBody,
+  stockUpdateResult,
+} from './schemas.ts';
 
 const tags = ['Admin: Products'];
 const security = adminAuth;
@@ -25,6 +36,28 @@ export const productsDocs: ZodOpenApiPathsObject = {
         'A simple product has no options and one variant. Prices and stock are per variant.',
       requestBody: jsonBody(productBody),
       responses: { '201': json(productSchema, 'Created'), ...errors(400, 401, 403, 409) },
+    },
+  },
+  '/v1/admin/products/bulk': {
+    post: {
+      tags,
+      security,
+      summary: 'Change many products at once',
+      description: `${access} Publish, unpublish or archive, add or remove a category, set the brand, or delete. Up to 500 products.`,
+      requestBody: jsonBody(productBulkBody),
+      responses: { '200': json(bulkResult), ...errors(400, 401, 403) },
+    },
+  },
+  '/v1/admin/products/stock': {
+    patch: {
+      tags,
+      security,
+      summary: 'Update stock quickly',
+      description:
+        `${access} Send the new quantity and the quantity you saw (baseQuantity), so only the difference is applied. ` +
+        'Every change is recorded in the stock history.',
+      requestBody: jsonBody(stockUpdateBody),
+      responses: { '200': json(stockUpdateResult), ...errors(400, 401, 403) },
     },
   },
   '/v1/admin/products/{id}': {
