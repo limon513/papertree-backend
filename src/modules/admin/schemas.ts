@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { slugify } from '../../lib/slug.ts';
 
 export const emailSchema = z
   .string({ error: 'Email is required' })
@@ -17,3 +18,25 @@ export const nameSchema = z
   .trim()
   .min(2, { error: 'Name must be at least 2 characters' })
   .max(100, { error: 'Name is too long' });
+
+/** Optional text. Empty becomes null. */
+export const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max, { error: `Must be ${max} characters or less` })
+    .nullable()
+    .transform((v) => v || null);
+
+/** Cleaned into a URL-safe slug. Empty means "make one from the name". */
+export const slugInput = z
+  .string()
+  .trim()
+  .max(120, { error: 'URL name is too long' })
+  .transform(slugify)
+  .meta({ description: 'URL name, e.g. "art-paper". Leave empty to make it from the name.' });
+
+export const seoFields = {
+  seoTitle: optionalText(200).meta({ description: 'Page title for Google. Empty = use the name.' }),
+  seoDescription: optionalText(500).meta({ description: 'Short text shown under the title in Google.' }),
+};
