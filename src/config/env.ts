@@ -13,6 +13,12 @@ const schema = z
       .default('true')
       .transform((v) => v === 'true'),
 
+    /** Run background jobs (imports) inside the API process. false when separate workers run them. */
+    JOB_WORKERS: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
+
     // Uploaded images: any S3-compatible storage (Neon Object Storage, AWS S3, ...),
     // or the local uploads/ folder when S3 is not set up.
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),

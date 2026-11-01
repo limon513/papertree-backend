@@ -39,6 +39,7 @@ Node 26 (runs TypeScript directly), Express 5, PostgreSQL, Drizzle ORM, zod.
 | `npm run db:migrate` | Apply migrations to the database |
 | `npm run db:seed` | Create the Super Admin role and first admin (safe to run again) |
 | `npm run db:studio` | Browse the database in the browser |
+| `npm run worker` | Run only the background jobs (product imports), for production with `JOB_WORKERS=false` on the API |
 | `npm run db:seed-demo` | Add the sample shop: categories, brands and 43 products with pictures (safe to run again; existing items are skipped) |
 | `npm run icons:build` | Write `public/icons/*.svg` after changing the list in `src/lib/catalog-icons.ts` |
 
@@ -50,6 +51,22 @@ Node 26 (runs TypeScript directly), Express 5, PostgreSQL, Drizzle ORM, zod.
   Neon Object Storage for the demo (bucket with **public_read** access), AWS S3 or similar in production.
 - Category and brand icons are SVG files in `public/icons`, served at `/icons/{key}.svg`.
   They come from Fluent Emoji by Microsoft (MIT licence).
+
+## Background jobs
+
+Long tasks like product imports run as background jobs, stored in PostgreSQL by
+[pg-boss](https://github.com/timgit/pg-boss) (schema `pgboss`), so no Redis is needed.
+
+- Demo and development: the API runs the jobs itself (`JOB_WORKERS=true`, the default).
+- Production: run the API with `JOB_WORKERS=false` and one or more `npm run worker` processes under PM2.
+- A job that was running when the server restarted continues where it stopped.
+
+## Product imports
+
+`POST /v1/admin/imports/products` takes a CSV: the PaperTree template (`GET /v1/admin/imports/template.csv`)
+or a WooCommerce product export. Every product is checked first (new, update by SKU, skip, or problem);
+nothing is imported until `POST /v1/admin/imports/{id}/start`. Image links in the file are downloaded
+(public addresses only) and stored like uploads.
 
 ## Redis
 
