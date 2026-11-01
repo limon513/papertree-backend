@@ -16,7 +16,7 @@ import { badRequest, conflict, notFound } from '../../../lib/errors.ts';
 import { cleanHtml } from '../../../lib/html.ts';
 import { freeSlug, slugify } from '../../../lib/slug.ts';
 import { mediaView, withImages } from '../media/view.ts';
-import type { ProductInput } from './schemas.ts';
+import type { ProductBulkInput, ProductInput, StockUpdateInput } from './schemas.ts';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -139,7 +139,7 @@ async function pickSlug(given: string | undefined, name: string, productId?: num
   return freeSlug(base, new Set(others.map((p) => p.slug)));
 }
 
-/** Sets stock for one variant at one location and records the change. */
+/** Sets stock for one variant at one location and records the change. Returns the new quantity. */
 async function setStock(
   tx: Tx,
   variantId: number,
@@ -147,6 +147,7 @@ async function setStock(
   entry: { quantity: number; baseQuantity?: number },
   reason: 'initial' | 'adjustment',
   adminUserId: number | null,
+  note: string | null = null,
 ) {
   const [current] = await tx
     .select({ quantity: inventoryLevels.quantity })
@@ -158,7 +159,7 @@ async function setStock(
   // Apply only the change the user made, on top of whatever the stock is now.
   const target = entry.baseQuantity !== undefined ? now + (entry.quantity - entry.baseQuantity) : entry.quantity;
   const change = target - now;
-  if (change === 0 && current) return;
+  if (change === 0 && current) return target;
 
   await tx
     .insert(inventoryLevels)
@@ -166,8 +167,123 @@ async function setStock(
     .onConflictDoUpdate({ target: [inventoryLevels.variantId, inventoryLevels.locationId], set: { quantity: target } });
 
   if (change !== 0) {
-    await tx.insert(inventoryMovements).values({ variantId, locationId, change, quantityAfter: target, reason, adminUserId });
+    await tx
+      .insert(inventoryMovements)
+      .values({ variantId, locationId, change, quantityAfter: target, reason, adminUserId, note });
   }
+  return target;
+}
+
+/** Marks products as changed (for "recently changed") when only their links or stock changed. */
+const touch = (tx: Tx, ids: number[]) =>
+  tx.update(products).set({ updatedAt: new Date() }).where(inArray(products.id, ids));
+
+/** Applies one change to many products. Returns how many products it changed. */
+export async function bulkUpdate(input: ProductBulkInput) {
+  const { ids } = input;
+
+  if (input.action === 'add-category' || input.action === 'remove-category') {
+    const [category] = await db.select({ id: categories.id }).from(categories).where(eq(categories.id, input.categoryId));
+    if (!category) throw badRequest('This category no longer exists', { categoryId: 'This category no longer exists' });
+  }
+  if (input.action === 'set-brand' && input.brandId !== null) {
+    const [brand] = await db.select({ id: brands.id }).from(brands).where(eq(brands.id, input.brandId));
+    if (!brand) throw badRequest('This brand no longer exists', { brandId: 'This brand no longer exists' });
+  }
+
+  return db.transaction(async (tx) => {
+    switch (input.action) {
+      case 'set-status': {
+        const rows = await tx
+          .update(products)
+          .set({
+            status: input.status,
+            publishedAt: input.status === 'active' ? sql`coalesce(${products.publishedAt}, now())` : undefined,
+          })
+          .where(inArray(products.id, ids))
+          .returning({ id: products.id });
+        return rows.length;
+      }
+      case 'set-brand': {
+        const rows = await tx
+          .update(products)
+          .set({ brandId: input.brandId })
+          .where(inArray(products.id, ids))
+          .returning({ id: products.id });
+        return rows.length;
+      }
+      case 'add-category': {
+        // Products that have no category yet get this one as their main category.
+        const existing = await tx
+          .select({ productId: productCategories.productId })
+          .from(productCategories)
+          .where(inArray(productCategories.productId, ids));
+        const hasAny = new Set(existing.map((r) => r.productId));
+        const found = await tx.select({ id: products.id }).from(products).where(inArray(products.id, ids));
+        const rows = await tx
+          .insert(productCategories)
+          .values(found.map((p) => ({ productId: p.id, categoryId: input.categoryId, isPrimary: !hasAny.has(p.id) })))
+          .onConflictDoNothing()
+          .returning({ productId: productCategories.productId });
+        if (rows.length) await touch(tx, rows.map((r) => r.productId));
+        return rows.length;
+      }
+      case 'remove-category': {
+        const rows = await tx
+          .delete(productCategories)
+          .where(and(inArray(productCategories.productId, ids), eq(productCategories.categoryId, input.categoryId)))
+          .returning({ productId: productCategories.productId, isPrimary: productCategories.isPrimary });
+        // Products that lost their main category: their first remaining category becomes the main one.
+        for (const { productId } of rows.filter((r) => r.isPrimary)) {
+          const [next] = await tx
+            .select({ categoryId: productCategories.categoryId })
+            .from(productCategories)
+            .where(eq(productCategories.productId, productId))
+            .orderBy(asc(productCategories.categoryId))
+            .limit(1);
+          if (next) {
+            await tx
+              .update(productCategories)
+              .set({ isPrimary: true })
+              .where(and(eq(productCategories.productId, productId), eq(productCategories.categoryId, next.categoryId)));
+          }
+        }
+        if (rows.length) await touch(tx, rows.map((r) => r.productId));
+        return rows.length;
+      }
+      case 'delete': {
+        const rows = await tx.delete(products).where(inArray(products.id, ids)).returning({ id: products.id });
+        return rows.length;
+      }
+    }
+  });
+}
+
+/** Quick stock changes from the products list. Returns the new quantities. */
+export async function updateStock(input: StockUpdateInput, adminUserId: number | null) {
+  const variantIds = [...new Set(input.changes.map((c) => c.variantId))];
+  const locationIds = [...new Set(input.changes.map((c) => c.locationId))];
+  const [variants, locations] = await Promise.all([
+    db
+      .select({ id: productVariants.id, productId: productVariants.productId })
+      .from(productVariants)
+      .where(inArray(productVariants.id, variantIds)),
+    db.select({ id: stockLocations.id }).from(stockLocations).where(inArray(stockLocations.id, locationIds)),
+  ]);
+  if (variants.length !== variantIds.length) throw badRequest('A variant no longer exists. Reload the page.');
+  if (locations.length !== locationIds.length) throw badRequest('A stock location no longer exists. Reload the page.');
+
+  const productIds = [...new Set(variants.map((v) => v.productId))];
+  const levels = await db.transaction(async (tx) => {
+    const result: { variantId: number; locationId: number; quantity: number }[] = [];
+    for (const c of input.changes) {
+      const quantity = await setStock(tx, c.variantId, c.locationId, c, 'adjustment', adminUserId, input.note);
+      result.push({ variantId: c.variantId, locationId: c.locationId, quantity });
+    }
+    await touch(tx, productIds);
+    return result;
+  });
+  return { levels, productIds };
 }
 
 /** Creates (no productId) or saves a product from the full form. Returns the product id. */
