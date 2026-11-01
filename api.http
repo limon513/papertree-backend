@@ -1,0 +1,68 @@
+### Quick manual tests for the API.
+### Open in VS Code with the "REST Client" extension and click "Send Request" above each block.
+### Cookies are kept between requests, so sign in first.
+
+@api = http://localhost:4000
+
+### Health check (database up?)
+GET {{api}}/health
+
+### Sign in (use the email/password from your .env SEED_ADMIN_*)
+POST {{api}}/v1/admin/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@papertree.com.bd",
+  "password": "change-me-please"
+}
+
+### Who am I?
+GET {{api}}/v1/admin/auth/me
+
+### List roles
+GET {{api}}/v1/admin/roles
+
+### Create a role
+POST {{api}}/v1/admin/roles
+Content-Type: application/json
+
+{
+  "name": "Order Staff",
+  "description": "Handles orders and customers",
+  "modules": ["orders", "customers"],
+  "canImpersonate": true
+}
+
+### List staff
+GET {{api}}/v1/admin/staff
+
+### Add a staff member (change roleId to the id of the role you created)
+POST {{api}}/v1/admin/staff
+Content-Type: application/json
+
+{
+  "name": "Rahim Uddin",
+  "email": "rahim@papertree.com.bd",
+  "password": "rahim-password-1",
+  "roleId": 2
+}
+
+### Disable a staff member (change the id)
+PATCH {{api}}/v1/admin/staff/2
+Content-Type: application/json
+
+{
+  "status": "disabled"
+}
+
+### Change my password
+POST {{api}}/v1/admin/auth/change-password
+Content-Type: application/json
+
+{
+  "currentPassword": "change-me-please",
+  "newPassword": "a-new-strong-password"
+}
+
+### Sign out
+POST {{api}}/v1/admin/auth/logout
