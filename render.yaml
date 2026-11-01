@@ -1,0 +1,24 @@
+# Demo deploy on Render (free plan). Production runs on our own VPS with PM2.
+# The Render region must match the Neon database region, or every query crosses an ocean.
+services:
+  - type: web
+    name: papertree-api
+    runtime: node
+    plan: free
+    region: singapore # same region as the Neon database (ap-southeast-1)
+    buildCommand: npm ci
+    # The free plan has no pre-deploy step, so migrations run on every start (they skip what is already applied).
+    startCommand: npm run db:migrate && npm start
+    # No healthCheckPath: /health queries the database, and constant checks would keep
+    # the free Neon database awake and use up its monthly hours.
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # set in the Render dashboard
+      - key: ADMIN_APP_URL
+        value: https://papertree-admin.bitnbyteit.com
+      - key: TRUST_PROXY
+        value: 1
+      - key: API_DOCS
+        value: true
