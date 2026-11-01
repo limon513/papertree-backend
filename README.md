@@ -39,6 +39,16 @@ Node 26 (runs TypeScript directly), Express 5, PostgreSQL, Drizzle ORM, zod.
 | `npm run db:migrate` | Apply migrations to the database |
 | `npm run db:seed` | Create the Super Admin role and first admin (safe to run again) |
 | `npm run db:studio` | Browse the database in the browser |
+| `npm run icons:build` | Write `public/icons/*.svg` after changing the list in `src/lib/catalog-icons.ts` |
+
+## Images and icons
+
+- Uploads (`POST /v1/admin/media`) are saved as WebP in widths 160, 400, 800 and 1600.
+  With `STORAGE_DRIVER=local` they go to `uploads/` and are served at `/uploads`;
+  with `STORAGE_DRIVER=s3` they go to S3-compatible storage (set the `S3_*` values):
+  Neon Object Storage for the demo (bucket with **public_read** access), AWS S3 or similar in production.
+- Category and brand icons are SVG files in `public/icons`, served at `/icons/{key}.svg`.
+  They come from Fluent Emoji by Microsoft (MIT licence).
 
 ## Redis
 

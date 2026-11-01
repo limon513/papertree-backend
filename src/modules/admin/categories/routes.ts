@@ -6,6 +6,7 @@ import { badRequest, conflict, notFound } from '../../../lib/errors.ts';
 import { parseId } from '../../../lib/ids.ts';
 import { audit } from '../../../lib/audit.ts';
 import { freeSlug, slugify } from '../../../lib/slug.ts';
+import { checkImageId, withImage, withImages } from '../media/view.ts';
 import { createCategoryBody, MAX_CATEGORY_DEPTH, reorderCategoriesBody, updateCategoryBody } from './schemas.ts';
 
 /** Mounted behind requireAdmin + requireModule('products'). */
@@ -92,13 +93,13 @@ const nextSortOrder = (rows: Category[], parentId: number | null) =>
   1 + Math.max(-1, ...rows.filter((r) => r.parentId === parentId).map((r) => r.sortOrder));
 
 categoriesRouter.get('/', async (_req, res) => {
-  res.json({ items: await loadAll() });
+  res.json({ items: await withImages(await loadAll()) });
 });
 
 categoriesRouter.get('/:id', async (req, res) => {
   const [row] = await db.select().from(categories).where(eq(categories.id, parseId(req.params.id))).limit(1);
   if (!row) throw notFound('Category not found');
-  res.json(row);
+  res.json(await withImage(row));
 });
 
 categoriesRouter.post('/', async (req, res) => {
@@ -107,6 +108,7 @@ categoriesRouter.post('/', async (req, res) => {
 
   checkParent(rows, input.parentId);
   checkName(rows, input.name, input.parentId);
+  await checkImageId(input.imageId);
 
   const [created] = await db
     .insert(categories)
@@ -115,6 +117,8 @@ categoriesRouter.post('/', async (req, res) => {
       slug: pickSlug(rows, input.slug, input.name),
       parentId: input.parentId,
       description: input.description ?? null,
+      imageId: input.imageId ?? null,
+      icon: input.icon ?? null,
       isActive: input.isActive,
       seoTitle: input.seoTitle ?? null,
       seoDescription: input.seoDescription ?? null,
@@ -123,7 +127,7 @@ categoriesRouter.post('/', async (req, res) => {
     .returning();
 
   await audit(req, { action: 'category.create', entityType: 'category', entityId: created!.id, after: created });
-  res.status(201).json(created);
+  res.status(201).json(await withImage(created!));
 });
 
 categoriesRouter.patch('/:id', async (req, res) => {
@@ -138,6 +142,7 @@ categoriesRouter.patch('/:id', async (req, res) => {
 
   if (moved) checkParent(rows, parentId, id);
   if (moved || input.name !== undefined) checkName(rows, name, parentId, id);
+  await checkImageId(input.imageId);
 
   const [after] = await db
     .update(categories)
@@ -148,6 +153,8 @@ categoriesRouter.patch('/:id', async (req, res) => {
       parentId,
       sortOrder: moved ? nextSortOrder(rows, parentId) : undefined,
       description: input.description,
+      imageId: input.imageId,
+      icon: input.icon,
       isActive: input.isActive,
       seoTitle: input.seoTitle,
       seoDescription: input.seoDescription,
@@ -156,7 +163,7 @@ categoriesRouter.patch('/:id', async (req, res) => {
     .returning();
 
   await audit(req, { action: 'category.update', entityType: 'category', entityId: id, before, after });
-  res.json(after);
+  res.json(await withImage(after!));
 });
 
 categoriesRouter.post('/reorder', async (req, res) => {

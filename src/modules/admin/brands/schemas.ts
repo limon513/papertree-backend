@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { optionalText, seoFields, slugInput } from '../schemas.ts';
+import { mediaSchema } from '../media/schemas.ts';
+import { optionalText, pictureFields, seoFields, slugInput } from '../schemas.ts';
 
 const brandName = z
   .string({ error: 'Name is required' })
@@ -12,6 +13,8 @@ export const createBrandBody = z
     name: brandName,
     slug: slugInput.optional(),
     description: optionalText(5000).optional(),
+    imageId: pictureFields.imageId.optional(),
+    icon: pictureFields.icon.optional(),
     isActive: z.boolean().default(true).meta({ description: 'Shown on the website' }),
     isFeatured: z.boolean().default(false).meta({ description: 'Shown first in the brand shop' }),
     seoTitle: seoFields.seoTitle.optional(),
@@ -24,6 +27,8 @@ export const updateBrandBody = z
     name: brandName.optional(),
     slug: slugInput.optional(),
     description: optionalText(5000).optional(),
+    imageId: pictureFields.imageId.optional(),
+    icon: pictureFields.icon.optional(),
     isActive: z.boolean().optional(),
     isFeatured: z.boolean().optional(),
     seoTitle: seoFields.seoTitle.optional(),
@@ -39,6 +44,9 @@ export const brand = z
     name: z.string(),
     slug: z.string(),
     description: z.string().nullable(),
+    imageId: z.number().nullable(),
+    image: mediaSchema.nullable(),
+    icon: z.string().nullable(),
     isActive: z.boolean(),
     isFeatured: z.boolean(),
     seoTitle: z.string().nullable(),

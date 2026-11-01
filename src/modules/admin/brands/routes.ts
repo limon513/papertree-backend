@@ -6,6 +6,7 @@ import { badRequest, conflict, notFound } from '../../../lib/errors.ts';
 import { parseId } from '../../../lib/ids.ts';
 import { audit } from '../../../lib/audit.ts';
 import { freeSlug, slugify } from '../../../lib/slug.ts';
+import { checkImageId, withImage, withImages } from '../media/view.ts';
 import { createBrandBody, updateBrandBody } from './schemas.ts';
 
 /** Mounted behind requireAdmin + requireModule('products'). */
@@ -53,16 +54,18 @@ async function pickSlug(given: string | undefined, name: string, exceptId?: numb
 }
 
 brandsRouter.get('/', async (_req, res) => {
-  res.json({ items: await db.select().from(brands).orderBy(asc(sql`lower(${brands.name})`)) });
+  const rows = await db.select().from(brands).orderBy(asc(sql`lower(${brands.name})`));
+  res.json({ items: await withImages(rows) });
 });
 
 brandsRouter.get('/:id', async (req, res) => {
-  res.json(await getBrand(parseId(req.params.id)));
+  res.json(await withImage(await getBrand(parseId(req.params.id))));
 });
 
 brandsRouter.post('/', async (req, res) => {
   const input = createBrandBody.parse(req.body);
   await checkName(input.name);
+  await checkImageId(input.imageId);
 
   const [created] = await db
     .insert(brands)
@@ -70,6 +73,8 @@ brandsRouter.post('/', async (req, res) => {
       name: input.name,
       slug: await pickSlug(input.slug, input.name),
       description: input.description ?? null,
+      imageId: input.imageId ?? null,
+      icon: input.icon ?? null,
       isActive: input.isActive,
       isFeatured: input.isFeatured,
       seoTitle: input.seoTitle ?? null,
@@ -78,7 +83,7 @@ brandsRouter.post('/', async (req, res) => {
     .returning();
 
   await audit(req, { action: 'brand.create', entityType: 'brand', entityId: created!.id, after: created });
-  res.status(201).json(created);
+  res.status(201).json(await withImage(created!));
 });
 
 brandsRouter.patch('/:id', async (req, res) => {
@@ -87,6 +92,7 @@ brandsRouter.patch('/:id', async (req, res) => {
   const before = await getBrand(id);
 
   if (input.name !== undefined) await checkName(input.name, id);
+  await checkImageId(input.imageId);
   const name = input.name ?? before.name;
 
   const [after] = await db
@@ -96,6 +102,8 @@ brandsRouter.patch('/:id', async (req, res) => {
       // An empty slug means "make a new one from the name".
       slug: input.slug === undefined ? undefined : await pickSlug(input.slug, name, id),
       description: input.description,
+      imageId: input.imageId,
+      icon: input.icon,
       isActive: input.isActive,
       isFeatured: input.isFeatured,
       seoTitle: input.seoTitle,
@@ -105,7 +113,7 @@ brandsRouter.patch('/:id', async (req, res) => {
     .returning();
 
   await audit(req, { action: 'brand.update', entityType: 'brand', entityId: id, before, after });
-  res.json(after);
+  res.json(await withImage(after!));
 });
 
 brandsRouter.delete('/:id', async (req, res) => {

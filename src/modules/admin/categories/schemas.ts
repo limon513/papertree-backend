@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { optionalText, seoFields, slugInput } from '../schemas.ts';
+import { mediaSchema } from '../media/schemas.ts';
+import { optionalText, pictureFields, seoFields, slugInput } from '../schemas.ts';
 
 export const MAX_CATEGORY_DEPTH = 3;
 
@@ -22,6 +23,8 @@ export const createCategoryBody = z
     slug: slugInput.optional(),
     parentId: parentId.default(null),
     description: optionalText(5000).optional(),
+    imageId: pictureFields.imageId.optional(),
+    icon: pictureFields.icon.optional(),
     isActive: z.boolean().default(true).meta({ description: 'Shown on the website' }),
     seoTitle: seoFields.seoTitle.optional(),
     seoDescription: seoFields.seoDescription.optional(),
@@ -34,6 +37,8 @@ export const updateCategoryBody = z
     slug: slugInput.optional(),
     parentId: parentId.optional(),
     description: optionalText(5000).optional(),
+    imageId: pictureFields.imageId.optional(),
+    icon: pictureFields.icon.optional(),
     isActive: z.boolean().optional(),
     seoTitle: seoFields.seoTitle.optional(),
     seoDescription: seoFields.seoDescription.optional(),
@@ -59,6 +64,9 @@ export const category = z
     name: z.string(),
     slug: z.string(),
     description: z.string().nullable(),
+    imageId: z.number().nullable(),
+    image: mediaSchema.nullable(),
+    icon: z.string().nullable(),
     sortOrder: z.number(),
     isActive: z.boolean(),
     seoTitle: z.string().nullable(),

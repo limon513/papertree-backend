@@ -1,7 +1,9 @@
 import type { NextFunction, Request, Response } from 'express';
+import { MulterError } from 'multer';
 import { ZodError } from 'zod';
 import { AppError } from '../lib/errors.ts';
 import { logger } from '../lib/logger.ts';
+import { MAX_UPLOAD_MB } from '../modules/admin/media/schemas.ts';
 
 interface ErrorBody {
   error: { code: string; message: string; fields?: Record<string, string>; details?: unknown };
@@ -43,6 +45,15 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
         ...(isFieldMap ? { fields: details as Record<string, string> } : details ? { details } : {}),
       },
     });
+  }
+
+  // File upload errors.
+  if (err instanceof MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      const message = `The file is too big. The limit is ${MAX_UPLOAD_MB} MB.`;
+      return send(413, { error: { code: 'TOO_LARGE', message, fields: { file: message } } });
+    }
+    return send(400, { error: { code: 'BAD_UPLOAD', message: 'Upload one image at a time, in the "file" field' } });
   }
 
   // Body parser errors (bad JSON, body too large).
