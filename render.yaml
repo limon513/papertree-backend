@@ -22,3 +22,16 @@ services:
         value: 1
       - key: API_DOCS
         value: true
+      # Uploaded images go to Neon Object Storage (Render's disk is wiped on every deploy).
+      - key: STORAGE_DRIVER
+        value: s3
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_REGION
+        value: ap-southeast-1
+      - key: S3_BUCKET
+        value: papertree-media
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false

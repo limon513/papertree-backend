@@ -1,6 +1,13 @@
 import { sql } from 'drizzle-orm';
 import { boolean, index, integer, pgTable, text, uniqueIndex, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { id, ref, timestamps } from './_helpers.ts';
+import { media } from './media.ts';
+
+/** Image wins over icon on the website. The icon is a key from src/lib/catalog-icons.ts. */
+const picture = () => ({
+  imageId: ref('image_id').references(() => media.id, { onDelete: 'set null' }),
+  icon: text('icon'),
+});
 
 /**
  * Product categories, up to 3 levels deep (e.g. Paper > Art Paper > Watercolor Paper).
@@ -14,6 +21,7 @@ export const categories = pgTable(
     name: text('name').notNull(),
     slug: text('slug').notNull().unique(),
     description: text('description'),
+    ...picture(),
     /** Order among categories with the same parent. */
     sortOrder: integer('sort_order').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
@@ -31,6 +39,7 @@ export const brands = pgTable(
     name: text('name').notNull(),
     slug: text('slug').notNull().unique(),
     description: text('description'),
+    ...picture(),
     isActive: boolean('is_active').notNull().default(true),
     /** Shown first in the storefront's brand shop. */
     isFeatured: boolean('is_featured').notNull().default(false),

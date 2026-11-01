@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ICON_KEYS } from '../../lib/catalog-icons.ts';
 import { slugify } from '../../lib/slug.ts';
 
 export const emailSchema = z
@@ -35,6 +36,21 @@ export const slugInput = z
   .max(120, { error: 'URL name is too long' })
   .transform(slugify)
   .meta({ description: 'URL name, e.g. "art-paper". Leave empty to make it from the name.' });
+
+/** An uploaded image and/or an icon. The website shows the image if there is one, otherwise the icon. */
+export const pictureFields = {
+  imageId: z
+    .number({ error: 'Upload the image again' })
+    .int()
+    .positive()
+    .nullable()
+    .meta({ description: 'Id from POST /v1/admin/media. null = no image.' }),
+  icon: z
+    .string()
+    .refine((key) => ICON_KEYS.includes(key), { error: 'Choose an icon from the list' })
+    .nullable()
+    .meta({ description: 'Icon key from GET /v1/admin/icons. null = no icon.' }),
+};
 
 export const seoFields = {
   seoTitle: optionalText(200).meta({ description: 'Page title for Google. Empty = use the name.' }),

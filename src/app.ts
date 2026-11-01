@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
@@ -9,8 +10,11 @@ import { buildOpenApiDocument } from './docs/openapi.ts';
 import { env } from './config/env.ts';
 import { db } from './db/client.ts';
 import { logger } from './lib/logger.ts';
+import { LOCAL_UPLOADS_DIR } from './lib/storage.ts';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.ts';
 import { adminRouter } from './modules/admin/router.ts';
+
+const ICONS_DIR = join(import.meta.dirname, '..', 'public', 'icons');
 
 export function createApp() {
   const app = express();
@@ -28,6 +32,18 @@ export function createApp() {
   }
 
   app.use(helmet());
+
+  // Icon files, and uploaded images when they are kept on this server instead of S3.
+  // Shown as <img> on the admin panel and website (other addresses), so allow cross-origin use.
+  const crossOrigin = (res: express.Response) => res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  app.use('/icons', express.static(ICONS_DIR, { maxAge: '30d', setHeaders: crossOrigin }));
+  if (env.STORAGE_DRIVER === 'local') {
+    app.use(
+      '/uploads',
+      express.static(LOCAL_UPLOADS_DIR, { maxAge: '365d', immutable: true, setHeaders: crossOrigin }),
+    );
+  }
+
   app.use(cors({ origin: [env.ADMIN_APP_URL], credentials: true }));
   app.use(
     pinoHttp({
