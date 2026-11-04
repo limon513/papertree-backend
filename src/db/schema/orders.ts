@@ -1,34 +1,13 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, numeric, pgSequence, pgTable, text } from 'drizzle-orm/pg-core';
 import { adminUsers } from './admin.ts';
+import { customers } from './customers.ts';
 import { media } from './media.ts';
 import { products, productVariants, stockLocations } from './products.ts';
 import { deliveryZones } from './settings.ts';
 import { id, ref, timestamps, timestamptz } from './_helpers.ts';
 
 const money = (name: string) => numeric(name, { precision: 12, scale: 2, mode: 'number' });
-
-export type CustomerType = 'retail' | 'business';
-
-/**
- * People who order. Found by phone number (the main contact in Bangladesh).
- * Sign-in, saved addresses and business approval come with the Customers step.
- */
-export const customers = pgTable(
-  'customers',
-  {
-    id: id(),
-    name: text('name').notNull(),
-    /** "01712345678". */
-    phone: text('phone').notNull().unique(),
-    email: text('email'),
-    type: text('type').$type<CustomerType>().notNull().default('retail'),
-    businessName: text('business_name'),
-    note: text('note'),
-    ...timestamps,
-  },
-  (t) => [index('customers_name_idx').on(sql`lower(${t.name})`)],
-);
 
 export const ORDER_STATUSES = ['pending', 'confirmed', 'packed', 'shipped', 'delivered', 'cancelled', 'returned'] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];

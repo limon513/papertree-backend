@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { and, asc, count, desc, eq, gte, ilike, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../../db/client.ts';
-import { adminUsers, customers, orderEvents, orderItems, orderPayments, orders, products, productVariants } from '../../../db/schema/index.ts';
+import { adminUsers, customerAddresses, customers, orderEvents, orderItems, orderPayments, orders, products, productVariants } from '../../../db/schema/index.ts';
 import { audit } from '../../../lib/audit.ts';
 import { badRequest, notFound } from '../../../lib/errors.ts';
 import { parseId } from '../../../lib/ids.ts';
 import { normalizePhone } from '../../../lib/phone.ts';
 import { currentAdmin } from '../../../middleware/admin-auth.ts';
+import { addressView, isApprovedBusiness } from '../customers/service.ts';
 import { withImages } from '../media/view.ts';
 import { quoteBody } from '../settings/schemas.ts';
 import { DISTRICTS, getSettings, listZones, quote } from '../settings/service.ts';
@@ -160,23 +161,40 @@ ordersRouter.post('/delivery-quote', async (req, res) => {
   res.json(quote(zones, checkout, input));
 });
 
-/** The customer with this phone number and their last address, to fill in a new order. */
+/** The customer with this phone number, their saved addresses and terms, to fill in a new order. */
 ordersRouter.get('/customer-lookup', async (req, res) => {
   const phone = normalizePhone(customerLookupQuery.parse(req.query).phone);
-  const [[customer], [last], [n]] = await Promise.all([
-    db
-      .select({ id: customers.id, name: customers.name, phone: customers.phone, email: customers.email, type: customers.type })
-      .from(customers)
-      .where(eq(customers.phone, phone)),
-    db
-      .select({ districtId: orders.districtId, areaId: orders.areaId, address: orders.address })
-      .from(orders)
-      .where(eq(orders.phone, phone))
-      .orderBy(desc(orders.createdAt))
-      .limit(1),
+  const [[customer], [n]] = await Promise.all([
+    db.select().from(customers).where(eq(customers.phone, phone)),
     db.select({ n: count() }).from(orders).where(eq(orders.phone, phone)),
   ]);
-  res.json({ customer: customer ?? null, orders: n?.n ?? 0, lastAddress: last ?? null });
+  const addresses = customer
+    ? await db
+        .select()
+        .from(customerAddresses)
+        .where(eq(customerAddresses.customerId, customer.id))
+        .orderBy(desc(customerAddresses.isDefault), desc(customerAddresses.updatedAt))
+    : [];
+  const first = addresses[0];
+  res.json({
+    customer: customer
+      ? {
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone,
+          email: customer.email,
+          type: customer.type,
+          businessName: customer.businessName,
+          wholesale: isApprovedBusiness(customer),
+          termsNote: isApprovedBusiness(customer) ? (customer.wholesaleTerms?.note ?? null) : null,
+          isBlocked: customer.isBlocked,
+          blockedReason: customer.blockedReason,
+        }
+      : null,
+    orders: n?.n ?? 0,
+    addresses: addresses.map(addressView),
+    lastAddress: first ? { districtId: first.districtId, areaId: first.areaId, address: first.address } : null,
+  });
 });
 
 async function orderView(id: number) {
@@ -210,6 +228,10 @@ async function orderView(id: number) {
           .select({
             id: customers.id,
             type: customers.type,
+            businessName: customers.businessName,
+            isBlocked: customers.isBlocked,
+            blockedReason: customers.blockedReason,
+            termsNote: sql<string | null>`case when "customers"."business_status" = 'approved' then "customers"."wholesale_terms"->>'note' end`,
             orders: sql<number>`(select count(*) from orders o where o.customer_id = "customers"."id")`.mapWith(Number),
           })
           .from(customers)

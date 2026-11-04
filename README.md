@@ -102,6 +102,16 @@ Staff place orders in the admin (phone, Facebook, WhatsApp, shop); website order
 - Every change is written to `order_events`, the history shown on the order page.
 - Customers are found by phone number (`customers`); order numbers come from the `order_number_seq` sequence.
 
+## Customers
+
+- One row per phone number in `customers`; addresses used on orders are saved in `customer_addresses`
+  (one default per customer).
+- Business accounts: `type = business` with `business_status` pending → approved / rejected. An approved business
+  gets wholesale prices, and its `wholesale_terms` (advance, minimum order, delivery rule) replace the shop terms on
+  its wholesale orders; empty fields keep the shop terms.
+- Blocked customers (`is_blocked`, with a reason) will not be able to order on the website; staff see a warning.
+- Sign-in (OTP, Google, Facebook) comes with the storefront.
+
 ## Redis
 
 Redis is optional. Without it everything still works:

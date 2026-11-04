@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ORDER_CHANNELS, ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from '../../../db/schema/index.ts';
 import { bdPhone } from '../../../lib/phone.ts';
+import { addressSchema } from '../customers/schemas.ts';
 import { mediaSchema } from '../media/schemas.ts';
 import { emailSchema, nameSchema, optionalText } from '../schemas.ts';
 
@@ -175,7 +176,17 @@ export const orderDetail = z
       z.object({ id: z.number(), method: z.enum(PAYMENT_METHODS), amount: z.number(), reference: z.string().nullable(), note: z.string().nullable(), by: z.string().nullable(), createdAt: z.iso.datetime() }),
     ),
     events: z.array(z.object({ id: z.number(), type: z.string(), message: z.string(), by: z.string().nullable(), createdAt: z.iso.datetime() })),
-    customer: z.object({ id: z.number(), type: z.enum(['retail', 'business']), orders: z.number() }).nullable(),
+    customer: z
+      .object({
+        id: z.number(),
+        type: z.enum(['retail', 'business']),
+        businessName: z.string().nullable(),
+        isBlocked: z.boolean(),
+        blockedReason: z.string().nullable(),
+        termsNote: z.string().nullable(),
+        orders: z.number(),
+      })
+      .nullable(),
   })
   .catchall(z.unknown())
   .meta({ id: 'OrderDetail', description: 'All order fields, plus items, payments and history' });
@@ -206,12 +217,24 @@ export const variantSearchResult = z
 export const customerLookup = z
   .object({
     customer: z
-      .object({ id: z.number(), name: z.string(), phone: z.string(), email: z.string().nullable(), type: z.enum(['retail', 'business']) })
+      .object({
+        id: z.number(),
+        name: z.string(),
+        phone: z.string(),
+        email: z.string().nullable(),
+        type: z.enum(['retail', 'business']),
+        businessName: z.string().nullable(),
+        wholesale: z.boolean().meta({ description: 'Approved business: wholesale prices and its own terms' }),
+        termsNote: z.string().nullable(),
+        isBlocked: z.boolean(),
+        blockedReason: z.string().nullable(),
+      })
       .nullable(),
     orders: z.number(),
+    addresses: z.array(addressSchema).meta({ description: 'Saved addresses, default first' }),
     lastAddress: z
       .object({ districtId: z.string(), areaId: z.string().nullable(), address: z.string() })
       .nullable()
-      .meta({ description: 'From the latest order, to fill in the form' }),
+      .meta({ description: 'The default address, to fill in the form' }),
   })
   .meta({ id: 'OrderCustomerLookup' });
