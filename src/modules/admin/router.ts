@@ -7,6 +7,7 @@ import { importsRouter } from './imports/routes.ts';
 import { iconsRouter, mediaRouter } from './media/routes.ts';
 import { productsRouter, stockLocationsRouter } from './products/routes.ts';
 import { rolesRouter } from './roles/routes.ts';
+import { settingsRouter } from './settings/routes.ts';
 import { staffRouter } from './staff/routes.ts';
 
 /** Everything under /v1/admin. */
@@ -22,3 +23,4 @@ adminRouter.use('/icons', requireAdmin, iconsRouter);
 adminRouter.use('/products', requireAdmin, requireModule('products'), productsRouter);
 adminRouter.use('/stock-locations', requireAdmin, requireModule('products'), stockLocationsRouter);
 adminRouter.use('/imports', requireAdmin, requireModule('imports'), importsRouter);
+adminRouter.use('/settings', requireAdmin, requireModule('settings'), settingsRouter);
