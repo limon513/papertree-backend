@@ -42,6 +42,7 @@ Node 26 (runs TypeScript directly), Express 5, PostgreSQL, Drizzle ORM, zod.
 | `npm run worker` | Run only the background jobs (product imports), for production with `JOB_WORKERS=false` on the API |
 | `npm run db:seed-demo` | Add the sample shop: categories, brands and 43 products with pictures (safe to run again; existing items are skipped) |
 | `npm run icons:build` | Write `public/icons/*.svg` after changing the list in `src/lib/catalog-icons.ts` |
+| `npm run locations:build` | Write `src/data/bd-locations.json` (districts and areas of Bangladesh) |
 
 ## Images and icons
 
@@ -75,6 +76,17 @@ what it found (nothing is saved); `POST /v1/admin/imports/link` saves the checke
 It uses the WooCommerce Store API or Shopify's product data when the shop has them, the data embedded
 in Daraz pages, and otherwise the standard schema.org / Open Graph tags most shops have. AliExpress
 only shares the name and main picture with servers.
+
+## Settings and delivery charges
+
+Shop settings live in the `settings` table, one JSON row per section (`store`, `checkout`); fields that were
+never saved fall back to the defaults in `modules/admin/settings/schemas.ts`.
+
+Delivery charges come from `delivery_zones`. An order uses the zone that lists its area, else the zone that
+lists its district, else the default zone. A zone can be free from an order amount and charge extra for every
+started kg above an included weight; wholesale orders can follow their own rule (Settings > Payments &
+wholesale). Places are ids from `src/data/bd-locations.json`: the 64 districts and 494 upazilas from
+[bangladesh-geocode](https://github.com/nuhil/bangladesh-geocode) (MIT), plus the Dhaka City thanas.
 
 ## Redis
 

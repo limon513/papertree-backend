@@ -15,6 +15,7 @@
     "db:seed": "node --env-file-if-exists=.env src/db/seed.ts",
     "db:studio": "drizzle-kit studio",
     "icons:build": "node scripts/build-icons.ts",
+    "locations:build": "node scripts/build-locations.ts",
     "db:seed-demo": "node --env-file-if-exists=.env src/db/seed-demo.ts",
     "worker": "node --env-file-if-exists=.env src/worker.ts"
   },
