@@ -11,6 +11,7 @@ import {
   products,
   productVariants,
   stockLocations,
+  type StockChangeReason,
 } from '../../../db/schema/index.ts';
 import { badRequest, conflict, notFound } from '../../../lib/errors.ts';
 import { cleanHtml } from '../../../lib/html.ts';
@@ -145,7 +146,7 @@ async function setStock(
   variantId: number,
   locationId: number,
   entry: { quantity: number; baseQuantity?: number },
-  reason: 'initial' | 'adjustment',
+  reason: StockChangeReason,
   adminUserId: number | null,
   note: string | null = null,
 ) {
@@ -440,4 +441,16 @@ export async function duplicateProduct(id: number, adminUserId: number | null) {
     },
     adminUserId,
   );
+}
+
+/** Sets one variant's stock to an exact number (e.g. from an import file) and records why. */
+export async function setVariantStock(
+  variantId: number,
+  locationId: number,
+  quantity: number,
+  reason: StockChangeReason,
+  adminUserId: number | null,
+  note: string | null = null,
+) {
+  return db.transaction((tx) => setStock(tx, variantId, locationId, { quantity }, reason, adminUserId, note));
 }

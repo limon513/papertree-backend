@@ -3,6 +3,7 @@ import { requireAdmin, requireModule, requireSuperAdmin } from '../../middleware
 import { authRouter } from './auth/routes.ts';
 import { brandsRouter } from './brands/routes.ts';
 import { categoriesRouter } from './categories/routes.ts';
+import { importsRouter } from './imports/routes.ts';
 import { iconsRouter, mediaRouter } from './media/routes.ts';
 import { productsRouter, stockLocationsRouter } from './products/routes.ts';
 import { rolesRouter } from './roles/routes.ts';
@@ -20,3 +21,4 @@ adminRouter.use('/media', requireAdmin, mediaRouter);
 adminRouter.use('/icons', requireAdmin, iconsRouter);
 adminRouter.use('/products', requireAdmin, requireModule('products'), productsRouter);
 adminRouter.use('/stock-locations', requireAdmin, requireModule('products'), stockLocationsRouter);
+adminRouter.use('/imports', requireAdmin, requireModule('imports'), importsRouter);
