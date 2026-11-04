@@ -4,4 +4,5 @@ export * from './media.ts';
 export * from './products.ts';
 export * from './imports.ts';
 export * from './settings.ts';
+export * from './customers.ts';
 export * from './orders.ts';

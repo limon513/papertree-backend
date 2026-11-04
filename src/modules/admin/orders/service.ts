@@ -14,6 +14,7 @@ import {
   type PaymentStatus,
 } from '../../../db/schema/index.ts';
 import { badRequest, notFound } from '../../../lib/errors.ts';
+import { rememberAddress, wholesaleTermsFor } from '../customers/service.ts';
 import { changeStock, type Tx } from '../products/service.ts';
 import { AREAS, DISTRICTS, getSettings, listZones, quote } from '../settings/service.ts';
 import { STATUS_FLOW, type OrderInput } from './schemas.ts';
@@ -135,7 +136,13 @@ async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = ne
   if (input.discount > subtotal) throw badRequest('The discount is bigger than the order', { discount: 'More than the order amount' });
   const weightGrams = items.reduce((sum, i) => sum + (i.weightGrams ?? 0) * i.quantity, 0);
 
-  const [zones, checkout] = await Promise.all([listZones(), getSettings('checkout')]);
+  const [zones, shop, [customer]] = await Promise.all([
+    listZones(),
+    getSettings('checkout'),
+    tx.select().from(customers).where(eq(customers.phone, input.customer.phone)),
+  ]);
+  // A business with its own terms (advance, delivery) gets them on its wholesale orders.
+  const checkout = { ...shop, wholesale: wholesaleTermsFor(customer, shop.wholesale) };
   const delivery = quote(zones, checkout, {
     districtId: input.districtId,
     areaId: input.areaId,
@@ -181,23 +188,31 @@ async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = ne
   };
 }
 
-/** The customer with this phone number, created if new. Name and email are filled in when missing. */
+/**
+ * The customer with this phone number, created if new (a wholesale order by staff makes an approved business).
+ * Name and email are filled in when missing, and the address is saved for next time.
+ */
 async function customerFor(tx: Tx, input: OrderInput) {
   const [found] = await tx.select().from(customers).where(eq(customers.phone, input.customer.phone));
+  let id = found?.id;
   if (found) {
     if (!found.email && input.customer.email) await tx.update(customers).set({ email: input.customer.email }).where(eq(customers.id, found.id));
-    return found.id;
+  } else {
+    const wholesale = input.type === 'wholesale';
+    const [created] = await tx
+      .insert(customers)
+      .values({
+        name: input.customer.name,
+        phone: input.customer.phone,
+        email: input.customer.email,
+        type: wholesale ? 'business' : 'retail',
+        ...(wholesale && { businessName: input.customer.name, businessStatus: 'approved' as const }),
+      })
+      .returning({ id: customers.id });
+    id = created!.id;
   }
-  const [created] = await tx
-    .insert(customers)
-    .values({
-      name: input.customer.name,
-      phone: input.customer.phone,
-      email: input.customer.email,
-      type: input.type === 'wholesale' ? 'business' : 'retail',
-    })
-    .returning({ id: customers.id });
-  return created!.id;
+  await rememberAddress(tx, id!, { districtId: input.districtId, areaId: input.areaId, address: input.address });
+  return id!;
 }
 
 const event = (tx: Tx, orderId: number, type: OrderEventType, message: string, adminUserId: number | null) =>
