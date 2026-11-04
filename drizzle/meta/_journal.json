@@ -43,6 +43,13 @@
       "when": 1793809960598,
       "tag": "0005_store_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793811569632,
+      "tag": "0006_orders",
+      "breakpoints": true
     }
   ]
 }

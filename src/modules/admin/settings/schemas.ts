@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { optionalBdPhone } from '../../../lib/phone.ts';
 import { mediaSchema } from '../media/schemas.ts';
 import { emailSchema, nameSchema, optionalText } from '../schemas.ts';
 
@@ -8,15 +9,6 @@ const money = (label: string) =>
     .min(0, { error: `The ${label} cannot be negative` })
     .max(9_999_999, { error: `The ${label} is too high` })
     .transform((v) => Math.round(v * 100) / 100);
-
-/** "01712-345678", "+880 1712 345678" -> "01712345678". Empty -> null. */
-const phone = z
-  .string()
-  .trim()
-  .nullable()
-  .transform((v) => (v ? v.replace(/[\s-]/g, '').replace(/^\+?880/, '0') : null))
-  .refine((v) => v === null || /^0\d{9,10}$/.test(v), { error: 'Enter a Bangladeshi number, like 01712345678' })
-  .meta({ example: '01712345678' });
 
 const link = z
   .string()
@@ -31,8 +23,8 @@ export const storeSettings = z
   .object({
     name: nameSchema.default('PaperTree').meta({ example: 'PaperTree' }),
     tagline: optionalText(150).default(null),
-    phone: phone.default(null),
-    whatsapp: phone.default(null).meta({ description: 'Number for the WhatsApp chat button' }),
+    phone: optionalBdPhone.default(null),
+    whatsapp: optionalBdPhone.default(null).meta({ description: 'Number for the WhatsApp chat button' }),
     email: emailSchema.nullable().or(z.literal('').transform(() => null)).default(null),
     address: optionalText(500).default(null),
     openingHours: optionalText(200).default(null).meta({ example: 'Sat–Thu, 10am–8pm' }),

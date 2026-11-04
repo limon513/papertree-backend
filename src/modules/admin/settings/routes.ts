@@ -30,9 +30,21 @@ for (const key of Object.keys(SETTINGS) as SettingsKey[]) {
   });
 }
 
-/** Divisions, districts and areas of Bangladesh. Never changes while the server runs. */
-settingsRouter.get('/locations', (_req, res) => {
+/**
+ * Divisions, districts and areas of Bangladesh, for any signed-in staff (settings and orders use them).
+ * Never changes while the server runs.
+ */
+export const placesRouter = Router();
+placesRouter.get('/', (_req, res) => {
   res.set('cache-control', 'private, max-age=86400').json(LOCATIONS);
+});
+
+/** Store name, contact details and logo, for any signed-in staff (invoices, packing slips). */
+export const storeInfoRouter = Router();
+storeInfoRouter.get('/', async (_req, res) => {
+  const store = await getSettings('store');
+  const { image: logo } = await withImage({ imageId: store.logoImageId });
+  res.json({ store, logo });
 });
 
 // ---- Delivery zones ----

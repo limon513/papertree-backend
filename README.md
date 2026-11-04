@@ -88,6 +88,20 @@ started kg above an included weight; wholesale orders can follow their own rule 
 wholesale). Places are ids from `src/data/bd-locations.json`: the 64 districts and 494 upazilas from
 [bangladesh-geocode](https://github.com/nuhil/bangladesh-geocode) (MIT), plus the Dhaka City thanas.
 
+## Orders
+
+Staff place orders in the admin (phone, Facebook, WhatsApp, shop); website orders will use the same tables.
+
+- Prices come from the products: the sale price while it runs, the wholesale price for wholesale orders. A line can
+  carry its own price. Names, prices and pictures are copied into `order_items`, so old orders never change.
+- The delivery charge comes from the delivery zones unless typed in; wholesale orders get the advance from Settings.
+- Stock is taken from the order's location when it is placed, follows changes while the order is pending or
+  confirmed, and goes back when it is cancelled or returned (every change is in `inventory_movements`).
+- Statuses: pending → confirmed → packed → shipped → delivered, plus cancelled and returned.
+- Payments are rows in `order_payments` (negative = refund); the order's payment status follows the total paid.
+- Every change is written to `order_events`, the history shown on the order page.
+- Customers are found by phone number (`customers`); order numbers come from the `order_number_seq` sequence.
+
 ## Redis
 
 Redis is optional. Without it everything still works:
