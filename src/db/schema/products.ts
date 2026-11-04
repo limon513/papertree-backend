@@ -172,7 +172,7 @@ export const inventoryLevels = pgTable(
   (t) => [primaryKey({ columns: [t.variantId, t.locationId] }), index('inventory_levels_location_id_idx').on(t.locationId)],
 );
 
-export type StockChangeReason = 'initial' | 'adjustment' | 'order' | 'return' | 'import';
+export type StockChangeReason = 'initial' | 'adjustment' | 'order' | 'order_cancel' | 'return' | 'import';
 
 /** Every stock change, so we can always see why a number changed. */
 export const inventoryMovements = pgTable(

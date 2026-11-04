@@ -5,9 +5,10 @@ import { brandsRouter } from './brands/routes.ts';
 import { categoriesRouter } from './categories/routes.ts';
 import { importsRouter } from './imports/routes.ts';
 import { iconsRouter, mediaRouter } from './media/routes.ts';
+import { ordersRouter } from './orders/routes.ts';
 import { productsRouter, stockLocationsRouter } from './products/routes.ts';
 import { rolesRouter } from './roles/routes.ts';
-import { settingsRouter } from './settings/routes.ts';
+import { placesRouter, settingsRouter, storeInfoRouter } from './settings/routes.ts';
 import { staffRouter } from './staff/routes.ts';
 
 /** Everything under /v1/admin. */
@@ -23,4 +24,7 @@ adminRouter.use('/icons', requireAdmin, iconsRouter);
 adminRouter.use('/products', requireAdmin, requireModule('products'), productsRouter);
 adminRouter.use('/stock-locations', requireAdmin, requireModule('products'), stockLocationsRouter);
 adminRouter.use('/imports', requireAdmin, requireModule('imports'), importsRouter);
+adminRouter.use('/places', requireAdmin, placesRouter);
+adminRouter.use('/store-info', requireAdmin, storeInfoRouter);
 adminRouter.use('/settings', requireAdmin, requireModule('settings'), settingsRouter);
+adminRouter.use('/orders', requireAdmin, requireModule('orders'), ordersRouter);

@@ -19,7 +19,7 @@ import { freeSlug, slugify } from '../../../lib/slug.ts';
 import { mediaView, withImages } from '../media/view.ts';
 import type { ProductBulkInput, ProductInput, StockUpdateInput } from './schemas.ts';
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** The full product as the edit form needs it. */
 export async function getProduct(id: number) {
@@ -453,4 +453,17 @@ export async function setVariantStock(
   note: string | null = null,
 ) {
   return db.transaction((tx) => setStock(tx, variantId, locationId, { quantity }, reason, adminUserId, note));
+}
+
+/** Adds (+) or takes (-) stock inside a transaction, e.g. for orders. Returns the new quantity. */
+export function changeStock(
+  tx: Tx,
+  variantId: number,
+  locationId: number,
+  delta: number,
+  reason: StockChangeReason,
+  adminUserId: number | null,
+  note: string | null = null,
+) {
+  return setStock(tx, variantId, locationId, { quantity: delta, baseQuantity: 0 }, reason, adminUserId, note);
 }

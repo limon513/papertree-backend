@@ -4,6 +4,7 @@ import { brandsDocs } from '../modules/admin/brands/docs.ts';
 import { categoriesDocs } from '../modules/admin/categories/docs.ts';
 import { importsDocs } from '../modules/admin/imports/docs.ts';
 import { mediaDocs } from '../modules/admin/media/docs.ts';
+import { ordersDocs } from '../modules/admin/orders/docs.ts';
 import { productsDocs } from '../modules/admin/products/docs.ts';
 import { rolesDocs } from '../modules/admin/roles/docs.ts';
 import { settingsDocs } from '../modules/admin/settings/docs.ts';
@@ -41,6 +42,7 @@ export function buildOpenApiDocument() {
       ...productsDocs,
       ...importsDocs,
       ...settingsDocs,
+      ...ordersDocs,
     },
   });
 }

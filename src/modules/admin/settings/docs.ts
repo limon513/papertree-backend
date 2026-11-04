@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ZodOpenApiPathsObject } from 'zod-openapi';
+import { mediaSchema } from '../media/schemas.ts';
 import { adminAuth, errors, idParam, json, jsonBody, noContent } from '../../../docs/common.ts';
 import {
   checkoutSettings,
@@ -50,12 +51,25 @@ export const settingsDocs: ZodOpenApiPathsObject = {
       responses: { '200': json(checkoutSettingsSchema), ...errors(400, 401, 403) },
     },
   },
-  '/v1/admin/settings/locations': {
+  '/v1/admin/store-info': {
+    get: {
+      tags,
+      security,
+      summary: 'Store details for invoices',
+      description: 'Any signed-in staff. The store details and logo, read-only.',
+      responses: {
+        '200': json(z.object({ store: storeSettingsSchema, logo: mediaSchema.nullable() }).meta({ id: 'StoreInfo' })),
+        ...errors(401),
+      },
+    },
+  },
+  '/v1/admin/places': {
     get: {
       tags,
       security,
       summary: 'Divisions, districts and areas of Bangladesh',
-      description: `${access} Areas are upazilas plus the Dhaka City thanas (city: true). Ids are used by delivery zones.`,
+      description:
+        'Any signed-in staff. Areas are upazilas plus the Dhaka City thanas (city: true). Ids are used by delivery zones and order addresses.',
       responses: { '200': json(locationsSchema), ...errors(401, 403) },
     },
   },
