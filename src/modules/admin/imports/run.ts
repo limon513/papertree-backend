@@ -9,6 +9,7 @@ import {
   productVariants,
   stockLocations,
 } from '../../../db/schema/index.ts';
+import { inBatches } from '../../../lib/batches.ts';
 import { AppError } from '../../../lib/errors.ts';
 import { logger } from '../../../lib/logger.ts';
 import { FetchError, fetchPublic } from '../../../lib/safe-fetch.ts';
@@ -86,29 +87,30 @@ async function ensureBrand(ctx: Context, name: string) {
 }
 
 /** Downloads an image link and stores it. Resolves to the media id, or the reason it failed. */
+export async function downloadImage(url: string, uploadedBy: number | null): Promise<number | string> {
+  try {
+    const { body } = await fetchPublic(url, { maxBytes: MAX_IMAGE_BYTES, accept: 'image/*' });
+    let name = 'image';
+    try {
+      name = decodeURIComponent(new URL(url).pathname.split('/').pop() || 'image');
+    } catch {
+      // Badly encoded file name: keep "image".
+    }
+    const media = await storeImage(body, name, uploadedBy);
+    return media.id;
+  } catch (err) {
+    return err instanceof FetchError || err instanceof AppError ? err.message : 'Could not be saved';
+  }
+}
+
+/** Each link is downloaded once per import. */
 function image(ctx: Context, url: string) {
   let pending = ctx.images.get(url);
   if (!pending) {
-    pending = (async () => {
-      try {
-        const { body } = await fetchPublic(url, { maxBytes: MAX_IMAGE_BYTES, accept: 'image/*' });
-        const name = decodeURIComponent(new URL(url).pathname.split('/').pop() ?? 'image');
-        const media = await storeImage(body, name, ctx.job.createdBy);
-        return media.id;
-      } catch (err) {
-        return err instanceof FetchError || err instanceof AppError ? err.message : 'Could not be saved';
-      }
-    })();
+    pending = downloadImage(url, ctx.job.createdBy);
     ctx.images.set(url, pending);
   }
   return pending;
-}
-
-/** Runs `work` on every item, at most `limit` at a time. */
-async function inBatches<T, R>(items: T[], limit: number, work: (item: T) => Promise<R>) {
-  const results: R[] = [];
-  for (let i = 0; i < items.length; i += limit) results.push(...(await Promise.all(items.slice(i, i + limit).map(work))));
-  return results;
 }
 
 async function createProduct(ctx: Context, p: ImportProduct) {

@@ -78,10 +78,16 @@ export function textToHtml(text: string) {
     .join('');
 }
 
-/** "2026-12-01 00:00:00" or "2026-12-01" -> ISO date, or null. */
-function date(text: string) {
+/**
+ * "2026-12-01 00:00:00" or "2026-12-01" -> ISO date, or null.
+ * Dates without a time zone are Bangladesh time, whatever time zone the server runs in.
+ */
+export function date(text: string) {
   if (!text) return null;
-  const d = new Date(text.includes('T') ? text : text.replace(' ', 'T'));
+  let t = text.trim().replace(' ', 'T');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) t += 'T00:00:00';
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(t)) t += '+06:00';
+  const d = new Date(t);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
@@ -390,38 +396,41 @@ function readWooCommerce(rows: { row: Row; line: number }[], headers: string[]):
   return products;
 }
 
-/** Reads the file and tells which format it is. */
-export function readProductCsv(file: Buffer): { format: ImportFormat; products: ImportProduct[] } {
-  let records: string[][];
+export interface Table {
+  /** Normalized headers ("Regular price" -> "regular price"). */
+  headers: string[];
+  rows: { row: Row; line: number }[];
+}
+
+/** Rows of a CSV file as text cells. */
+export function csvRecords(file: Buffer): string[][] {
   try {
-    records = parse(file, { bom: true, relax_column_count: true, skip_empty_lines: true }) as string[][];
+    return parse(file, { bom: true, relax_column_count: true, skip_empty_lines: true }) as string[][];
   } catch (err) {
     throw badRequest(`This file could not be read as CSV: ${err instanceof Error ? err.message : 'unknown error'}`, {
-      file: 'Save the spreadsheet as CSV (comma separated) and try again',
+      file: 'Save the spreadsheet as CSV (comma separated) or Excel (.xlsx) and try again',
     });
   }
+}
+
+/** First row = headers. Lines are numbered as in the spreadsheet (headers are line 1). */
+export function toTable(records: string[][]): Table {
   const [headerRow, ...dataRows] = records;
   if (!headerRow || !dataRows.length) throw badRequest('The file is empty', { file: 'The file has no product lines' });
-
   const headers = headerRow.map(normalize);
-  const rows = dataRows.map((cells, i) => ({
-    row: Object.fromEntries(headers.map((h, n) => [h, cells[n] ?? ''])) as Row,
-    line: i + 2,
-  }));
+  return {
+    headers,
+    rows: dataRows
+      .map((cells, i) => ({ row: Object.fromEntries(headers.map((h, n) => [h, cells[n] ?? ''])) as Row, line: i + 2 }))
+      .filter(({ row }) => Object.values(row).some((v) => v.trim() !== '')),
+  };
+}
 
+/** Our template or a WooCommerce export. Returns null for other files. */
+export function readProductTable({ headers, rows }: Table): { format: ImportFormat; products: ImportProduct[] } | null {
   const isWoo = headers.includes('type') && headers.includes('regular price') && headers.includes('parent');
   const isTemplate = headers.includes('name') && (headers.includes('price') || headers.includes('regular price'));
-  if (!isWoo && !isTemplate) {
-    throw badRequest('This file is not a product file we know', {
-      file: 'Use the PaperTree template or a WooCommerce product export (it needs at least "name" and "price" columns)',
-    });
-  }
-
-  const products = isWoo ? readWooCommerce(rows, headers) : readTemplate(rows);
-  if (products.length > MAX_PRODUCTS) {
-    throw badRequest(`The file has ${products.length} products. Import at most ${MAX_PRODUCTS} at a time.`, {
-      file: `Split the file into parts of at most ${MAX_PRODUCTS} products`,
-    });
-  }
-  return { format: isWoo ? 'woocommerce' : 'papertree', products };
+  if (isWoo) return { format: 'woocommerce', products: readWooCommerce(rows, headers) };
+  if (isTemplate) return { format: 'papertree', products: readTemplate(rows) };
+  return null;
 }

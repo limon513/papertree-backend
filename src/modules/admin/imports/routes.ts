@@ -2,28 +2,34 @@ import { Router } from 'express';
 import multer from 'multer';
 import { and, asc, count, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../../db/client.ts';
-import { adminUsers, importJobs, importRows } from '../../../db/schema/index.ts';
+import { adminUsers, brands, categories, importJobs, importRows } from '../../../db/schema/index.ts';
 import { badRequest, notFound } from '../../../lib/errors.ts';
+import { FetchError } from '../../../lib/safe-fetch.ts';
 import { parseId } from '../../../lib/ids.ts';
 import { audit } from '../../../lib/audit.ts';
 import { currentAdmin } from '../../../middleware/admin-auth.ts';
 import { QUEUES, sendJob } from '../../../jobs/boss.ts';
-import { readProductCsv, templateCsv } from './csv.ts';
+import { templateCsv } from './csv.ts';
+import { guessBrands } from './daraz.ts';
+import { readProductFiles } from './files.ts';
+import { readProductLink } from './link.ts';
+import { saveLinkProduct } from './link-save.ts';
 import { prepareImport } from './prepare.ts';
-import { importOptionsBody, importRowsQuery, MAX_CSV_MB } from './schemas.ts';
+import { importOptionsBody, importRowsQuery, linkCreateBody, linkReadBody, MAX_CSV_MB } from './schemas.ts';
 
 /** Mounted behind requireAdmin + requireModule('imports'). */
 export const importsRouter = Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_CSV_MB * 1024 * 1024, files: 1 },
+  // Two files only for the Daraz exports (basic + price & stock).
+  limits: { fileSize: MAX_CSV_MB * 1024 * 1024, files: 2 },
   fileFilter: (_req, file, done) => {
-    if (/\.xlsx?$/i.test(file.originalname)) {
-      return done(badRequest('Excel files are not supported', { file: 'In Excel use File > Save As > CSV, then upload that file' }));
+    if (/\.xls$/i.test(file.originalname)) {
+      return done(badRequest('This is the old Excel format', { file: 'In Excel use File > Save As > Excel Workbook (.xlsx) or CSV' }));
     }
-    if (!/\.(csv|txt)$/i.test(file.originalname)) {
-      return done(badRequest('This is not a CSV file', { file: 'Upload a .csv file' }));
+    if (!/\.(csv|txt|xlsx)$/i.test(file.originalname)) {
+      return done(badRequest('This is not a CSV or Excel file', { file: 'Upload a .csv or .xlsx file' }));
     }
     done(null, true);
   },
@@ -95,17 +101,20 @@ importsRouter.get('/', async (_req, res) => {
 });
 
 /** Reads and checks the file. Nothing is imported until "start". */
-importsRouter.post('/products', upload.single('file'), async (req, res) => {
-  if (!req.file) throw badRequest('Choose a CSV file', { file: 'Choose a CSV file' });
+importsRouter.post('/products', upload.array('file', 2), async (req, res) => {
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (!files.length) throw badRequest('Choose a file', { file: 'Choose a CSV or Excel file' });
   const options = importOptionsBody.parse(req.body ?? {});
-  const { format, products } = readProductCsv(req.file.buffer);
+  const { format, products } = await readProductFiles(files.map((f) => ({ name: f.originalname, buffer: f.buffer })));
+  if (format === 'daraz') guessBrands(products, (await db.select({ name: brands.name }).from(brands)).map((b) => b.name));
   const prepared = await prepareImport(products, options);
+  const fileName = files.map((f) => f.originalname).join(' + ');
 
   const jobId = await db.transaction(async (tx) => {
     const [job] = await tx
       .insert(importJobs)
       .values({
-        fileName: req.file!.originalname.slice(0, 200),
+        fileName: fileName.slice(0, 300),
         format,
         options,
         total: prepared.length,
@@ -128,8 +137,42 @@ importsRouter.post('/products', upload.single('file'), async (req, res) => {
     return job!.id;
   });
 
-  await audit(req, { action: 'import.upload', entityType: 'import', entityId: jobId, after: { fileName: req.file.originalname, format, options } });
+  await audit(req, { action: 'import.upload', entityType: 'import', entityId: jobId, after: { fileName, format, options } });
   res.status(201).json(await getJob(jobId));
+});
+
+/** "Pens & Pencils" and "pens and pencils" match. */
+const sameName = (name: string) => name.toLowerCase().replace(/&/g, 'and').replace(/[^\p{L}\p{N}]+/gu, '');
+
+/** Reads a product page from another shop. Nothing is saved. */
+importsRouter.post('/link/read', async (req, res) => {
+  const { url } = linkReadBody.parse(req.body);
+  let product;
+  try {
+    product = await readProductLink(url);
+  } catch (err) {
+    if (err instanceof FetchError) throw badRequest(err.message, { url: err.message });
+    throw err;
+  }
+
+  // Our brand and categories with the same names, so the user doesn't have to pick them.
+  const [brandRows, categoryRows] = await Promise.all([
+    db.select({ id: brands.id, name: brands.name }).from(brands),
+    db.select({ id: categories.id, name: categories.name }).from(categories),
+  ]);
+  const brandId = product.brand ? (brandRows.find((b) => sameName(b.name) === sameName(product.brand!))?.id ?? null) : null;
+  const wanted = new Set(product.categories.map(sameName));
+  const categoryIds = categoryRows.filter((c) => wanted.has(sameName(c.name))).map((c) => c.id).slice(0, 5);
+
+  res.json({ product, match: { brandId, categoryIds } });
+});
+
+/** Saves the checked product as a draft. */
+importsRouter.post('/link', async (req, res) => {
+  const input = linkCreateBody.parse(req.body);
+  const result = await saveLinkProduct(input, currentAdmin(req).id);
+  await audit(req, { action: 'import.link', entityType: 'product', entityId: result.productId, after: { url: input.url } });
+  res.status(201).json(result);
 });
 
 const PAGE_SIZE = 100;

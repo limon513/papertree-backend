@@ -63,10 +63,18 @@ Long tasks like product imports run as background jobs, stored in PostgreSQL by
 
 ## Product imports
 
-`POST /v1/admin/imports/products` takes a CSV: the PaperTree template (`GET /v1/admin/imports/template.csv`)
-or a WooCommerce product export. Every product is checked first (new, update by SKU, skip, or problem);
-nothing is imported until `POST /v1/admin/imports/{id}/start`. Image links in the file are downloaded
-(public addresses only) and stored like uploads.
+`POST /v1/admin/imports/products` takes a CSV or Excel (.xlsx) file: the PaperTree template
+(`GET /v1/admin/imports/template.csv`), a WooCommerce product export, or the Daraz Seller Center exports
+("basic" and "price & stock", sent together as two `file` parts; the Seller SKU becomes our SKU, so a later
+price & stock export with "update" refreshes prices and stock). Every product is checked first (new, update
+by SKU, skip, or problem); nothing is imported until `POST /v1/admin/imports/{id}/start`. Image links in the
+file are downloaded (public addresses only) and stored like uploads.
+
+**From a link:** `POST /v1/admin/imports/link/read` reads one product page from another shop and returns
+what it found (nothing is saved); `POST /v1/admin/imports/link` saves the checked result as a draft.
+It uses the WooCommerce Store API or Shopify's product data when the shop has them, the data embedded
+in Daraz pages, and otherwise the standard schema.org / Open Graph tags most shops have. AliExpress
+only shares the name and main picture with servers.
 
 ## Redis
 
