@@ -61,7 +61,8 @@ export function cardsQuery(locationId: number, where: SQL, order: SQL, limit: nu
     ${cardsCte(locationId)}
     select *, count(*) over () as total_count from cards c
     where ${where}
-    order by ${order}
+    -- Out-of-stock products last; the id makes the order stable, so pages never repeat or skip a product.
+    order by c.in_stock desc, ${order}, c.id desc
     limit ${limit} offset ${offset}`;
 }
 
@@ -120,8 +121,9 @@ export async function facets(where: SQL) {
   };
 }
 
+/** Every list puts products that can be bought first, then this order (see cardsQuery). */
 export const SORTS = {
-  popular: sql`c.sold desc, c.in_stock desc, c.published desc`,
+  popular: sql`c.sold desc, c.published desc`,
   newest: sql`c.published desc`,
   price_asc: sql`c.current_price asc, c.published desc`,
   price_desc: sql`c.current_price desc, c.published desc`,
@@ -135,8 +137,14 @@ export async function cards(where: SQL, order: SQL, limit: number, offset = 0) {
   const locationId = await defaultLocationId();
   const { rows } = await db.execute<CardRow & { total_count: string }>(cardsQuery(locationId, where, order, limit, offset));
   const images = await imagesById(rows.map((r) => (r.image_id ? Number(r.image_id) : null)));
+  let total = rows.length ? Number(rows[0]!.total_count) : 0;
+  // A page past the end has no rows to carry the count: count separately, so the real total is known.
+  if (!rows.length && offset > 0) {
+    const { rows: counted } = await db.execute<{ n: string }>(sql`${cardsCte(locationId)} select count(*) as n from cards c where ${where}`);
+    total = Number(counted[0]?.n ?? 0);
+  }
   return {
-    total: rows.length ? Number(rows[0]!.total_count) : 0,
+    total,
     items: rows.map((r) => {
       const price = Number(r.current_price);
       const regular = Number(r.regular_price);
