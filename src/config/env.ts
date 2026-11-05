@@ -7,6 +7,8 @@ const schema = z
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
     ADMIN_APP_URL: z.string().min(1).default('http://localhost:5173'),
+    /** The website (storefront); its browser calls (search, cart) are allowed. */
+    STOREFRONT_URL: z.string().min(1).default('http://localhost:3000'),
     TRUST_PROXY: z.coerce.number().int().min(0).default(0),
     API_DOCS: z
       .enum(['true', 'false'])
