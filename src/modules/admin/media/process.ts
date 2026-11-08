@@ -22,17 +22,22 @@ const unreadable = () =>
 export async function processImage(input: Buffer): Promise<ProcessedImage> {
   let format: string | undefined;
   let svgWidth: number | undefined;
+  let frames = 1;
   try {
     const meta = await sharp(input).metadata();
     format = meta.format;
     svgWidth = meta.width;
+    frames = meta.pages ?? 1;
   } catch {
     throw unreadable();
   }
 
   // SVGs (often logos) have no fixed pixel size, so draw them large enough for the biggest width.
   const density = format === 'svg' && svgWidth ? Math.min(2400, Math.max(72, Math.ceil((72 * MAX_WIDTH) / svgWidth))) : undefined;
-  const open = () => sharp(input, { density, animated: false, limitInputPixels: MAX_PIXELS }).autoOrient();
+  // Moving pictures (GIF banners) keep moving: saved as animated WebP, usually much smaller than the GIF.
+  const animated = frames > 1 && (format === 'gif' || format === 'webp');
+  // The size limit counts every frame of a moving picture.
+  const open = () => sharp(input, { density, animated, limitInputPixels: animated ? MAX_PIXELS * 4 : MAX_PIXELS }).autoOrient();
 
   let fullWidth: number;
   try {
@@ -53,7 +58,8 @@ export async function processImage(input: Buffer): Promise<ProcessedImage> {
         .resize({ width })
         .webp({ quality: 82, alphaQuality: 90, effort: 4 })
         .toBuffer({ resolveWithObject: true });
-      return { width, height: info.height, body: data };
+      // A moving picture's height counts all frames stacked: one frame's height is what is shown.
+      return { width, height: animated && info.pageHeight ? info.pageHeight : info.height, body: data };
     }),
   );
 

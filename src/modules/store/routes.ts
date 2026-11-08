@@ -1,8 +1,8 @@
 import { Router, type Response } from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, isNotNull, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.ts';
-import { brands, productCategories, productImages, productRequests, products, searchQueries } from '../../db/schema/index.ts';
+import { banners, brands, productCategories, productImages, productRequests, products, searchQueries } from '../../db/schema/index.ts';
 import { notFound } from '../../lib/errors.ts';
 import { defaultLocationId } from '../admin/orders/service.ts';
 import { AREAS, DISTRICTS, getSettings, listZones, LOCATIONS, quote } from '../admin/settings/service.ts';
@@ -73,16 +73,37 @@ storeRouter.get('/places', (_req, res) => {
 
 // ---- Home page ----
 
+/** Home page banners on now: active, inside their dates, with a picture. Up to 8 in the slider and 2 tiles. */
+async function liveBanners() {
+  const now = new Date();
+  const rows = await db
+    .select()
+    .from(banners)
+    .where(and(eq(banners.isActive, true), isNotNull(banners.imageId), or(isNull(banners.startsAt), lte(banners.startsAt, now)), or(isNull(banners.endsAt), gt(banners.endsAt, now))))
+    .orderBy(asc(banners.sortOrder), asc(banners.id));
+  const images = await imagesById(rows.flatMap((r) => [r.imageId, r.mobileImageId]));
+  const view = (r: (typeof rows)[number]) => ({
+    title: r.title,
+    image: images.get(r.imageId!) ?? null,
+    mobileImage: r.mobileImageId ? (images.get(r.mobileImageId) ?? null) : null,
+    link: r.linkUrl,
+  });
+  const shown = (placement: 'hero' | 'tile', most: number) => rows.filter((r) => r.placement === placement).map(view).filter((b) => b.image).slice(0, most);
+  return { hero: shown('hero', 8), tiles: shown('tile', 2) };
+}
+
 storeRouter.get('/home', async (_req, res) => {
   const cats = await activeCategories();
   const top = (cats.children.get(null) ?? []).filter((c) => cats.count(c.id) >= 3);
-  const [deals, fresh, popular, ...rails] = await Promise.all([
+  const [shownBanners, deals, fresh, popular, ...rails] = await Promise.all([
+    liveBanners(),
     cards(sql`c.regular_price > c.current_price and c.in_stock`, SORTS.deals, 12),
     cards(sql`c.in_stock`, SORTS.newest, 12),
     cards(sql`c.in_stock and c.sold > 0`, SORTS.popular, 12),
     ...top.map((c) => cards(and_([inCategories([c.id, ...cats.descendants(c.id)]), sql`c.in_stock`]), SORTS.popular, 12)),
   ]);
   cache(res, 60).json({
+    banners: shownBanners,
     deals: deals.items,
     newArrivals: fresh.items,
     bestSellers: popular.items,

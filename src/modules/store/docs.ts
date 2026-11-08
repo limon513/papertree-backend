@@ -29,7 +29,7 @@ export const storeDocs: ZodOpenApiPathsObject = {
     get: {
       tags,
       summary: 'Home page rows',
-      description: `${note} Deals (biggest discount first), new arrivals, best sellers (last 90 days) and one row per main category.`,
+      description: `${note} Banners shown now (hero slider up to 8, tiles up to 2), deals (biggest discount first), new arrivals, best sellers (last 90 days) and one row per main category.`,
       responses: { '200': json(open.meta({ id: 'StoreHome' })) },
     },
   },
