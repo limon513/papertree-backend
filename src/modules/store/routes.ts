@@ -1,12 +1,14 @@
 import { Router, type Response } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.ts';
-import { brands, productCategories, productImages, products } from '../../db/schema/index.ts';
+import { brands, productCategories, productImages, productRequests, products, searchQueries } from '../../db/schema/index.ts';
 import { notFound } from '../../lib/errors.ts';
 import { defaultLocationId } from '../admin/orders/service.ts';
 import { AREAS, DISTRICTS, getSettings, listZones, LOCATIONS, quote } from '../admin/settings/service.ts';
 import { activeCategories, cards, CURRENT_PRICE, facets, imagesById, inCategories, LOW_STOCK, SORTS } from './catalog.ts';
-import { cartBody, productListQuery, suggestQuery } from './schemas.ts';
+import { cartBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
+import { nameMatches, planSearch, productBySku, searchRank, searchWhere } from './search.ts';
 
 /** Public API for the website. Read-only, no sign-in. Mounted at /v1/store. */
 export const storeRouter = Router();
@@ -20,20 +22,6 @@ const and_ = (parts: (SQL | undefined)[]) => {
   return list.length ? sql.join(list, sql` and `) : all;
 };
 
-/** Each word must appear in the name, brand, a tag or a SKU. */
-const searchFilter = (q: string) =>
-  and_(
-    q
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 8)
-      .map((word) => {
-        const like = `%${word.replace(/[%_\\]/g, '\\$&')}%`;
-        return sql`(c.name ilike ${like} or coalesce(c.brand_name, '') ilike ${like}
-          or exists (select 1 from products p2 where p2.id = c.id and array_to_string(p2.tags, ' ') ilike ${like})
-          or exists (select 1 from product_variants v2 where v2.product_id = c.id and v2.sku ilike ${like}))`;
-      }),
-  );
 
 // ---- Menus, footer, store details ----
 
@@ -132,43 +120,92 @@ storeRouter.get('/products', async (req, res) => {
         .map((c) => ({ name: c.name, slug: c.slug, icon: c.icon, productCount: cats.count(c.id) })),
     };
   }
-  const base = [
-    categoryFilter,
-    q.q ? searchFilter(q.q) : undefined,
-    q.inStock ? sql`c.in_stock` : undefined,
-    q.onSale ? sql`c.regular_price > c.current_price` : undefined,
-  ];
+  const plan = q.q ? await planSearch(q.q) : null;
   const brandFilter = q.brand.length ? sql`c.brand_slug in (${sql.join(q.brand.map((b) => sql`${b}`), sql`, `)})` : undefined;
   const priceFilter = and_([
     q.min !== undefined ? sql`c.current_price >= ${q.min}` : undefined,
     q.max !== undefined ? sql`c.current_price <= ${q.max}` : undefined,
   ]);
+  // Searches show the best match first unless another order is chosen.
+  const order = q.sort === 'relevance' || (!q.sort && plan) ? (plan ? searchRank(plan) : SORTS.popular) : SORTS[q.sort ?? 'popular'];
 
-  const [list, filters] = await Promise.all([
-    cards(and_([...base, brandFilter, priceFilter]), SORTS[q.sort], q.pageSize, (q.page - 1) * q.pageSize),
-    facets(and_(base)),
-  ]);
-  cache(res, 60).json({ ...list, page: q.page, pageSize: q.pageSize, category, facets: filters });
+  const run = (search: SQL | undefined) => {
+    const base = [categoryFilter, search, q.inStock ? sql`c.in_stock` : undefined, q.onSale ? sql`c.regular_price > c.current_price` : undefined];
+    return Promise.all([cards(and_([...base, brandFilter, priceFilter]), order, q.pageSize, (q.page - 1) * q.pageSize), facets(and_(base))]);
+  };
+  let [list, filters] = await run(plan ? searchWhere(plan) : undefined);
+  // Nothing has all the words: show what has some of them ("doms pencil box 24" -> DOMS and pencil boxes).
+  let partial = false;
+  if (plan && list.total === 0 && plan.groups.length > 1) {
+    [list, filters] = await run(searchWhere(plan, false));
+    partial = list.total > 0;
+  }
+  // A SKU typed exactly: the website opens that product.
+  const sku = plan && q.page === 1 ? await productBySku(q.q!) : null;
+
+  cache(res, 60).json({
+    ...list,
+    page: q.page,
+    pageSize: q.pageSize,
+    category,
+    facets: filters,
+    search: plan ? { query: plan.query, searched: plan.searched, corrected: plan.corrected, partial, sku } : null,
+  });
+});
+
+/** A few requests per visitor per hour: enough for people, not for spam. */
+const requestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  // Only sent requests count: fixing a mistyped phone number is not held against anyone.
+  skipFailedRequests: true,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: { code: 'TOO_MANY_REQUESTS', message: 'You have sent several requests already. Please call or WhatsApp us instead.' } },
+});
+
+/** "Request this product": a shopper asks for something the shop does not have. */
+storeRouter.post('/product-requests', requestLimiter, async (req, res) => {
+  const { website, ...input } = productRequestBody.parse(req.body);
+  // The hidden box was filled: a bot. Answer as if saved, so it does not try again.
+  if (!website) await db.insert(productRequests).values(input);
+  res.status(201).json({ ok: true });
+});
+
+/** The browser reports each search made on the website, for the search report. */
+storeRouter.post('/search-log', async (req, res) => {
+  const body = searchLogBody.safeParse(req.body);
+  if (body.success) await db.insert(searchQueries).values(body.data);
+  res.status(204).end();
 });
 
 /** As-you-type search: a few products, matching categories and brands. */
 storeRouter.get('/suggest', async (req, res) => {
   const { q } = suggestQuery.parse(req.query);
-  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const matches = (text: string) => words.every((w) => text.toLowerCase().includes(w));
-  const [found, cats, brandRows] = await Promise.all([
-    cards(searchFilter(q), SORTS.popular, 6),
+  const plan = await planSearch(q);
+  if (!plan) {
+    cache(res, 60).json({ products: [], total: 0, categories: [], brands: [], search: null });
+    return;
+  }
+  const [cats, brandRows] = await Promise.all([
     activeCategories(),
     db.select({ name: brands.name, slug: brands.slug }).from(brands).where(eq(brands.isActive, true)),
   ]);
+  let found = await cards(searchWhere(plan), searchRank(plan), 6);
+  let partial = false;
+  if (found.total === 0 && plan.groups.length > 1) {
+    found = await cards(searchWhere(plan, false), searchRank(plan), 6);
+    partial = found.total > 0;
+  }
   cache(res, 60).json({
     products: found.items,
     total: found.total,
     categories: cats.all
-      .filter((c) => matches(c.name) && cats.count(c.id) > 0)
+      .filter((c) => nameMatches(c.name, plan) && cats.count(c.id) > 0)
       .slice(0, 4)
       .map((c) => ({ name: c.name, slug: c.slug, icon: c.icon })),
-    brands: brandRows.filter((b) => matches(b.name)).slice(0, 3),
+    brands: brandRows.filter((b) => nameMatches(b.name, plan)).slice(0, 3),
+    search: { query: plan.query, searched: plan.searched, corrected: plan.corrected, partial },
   });
 });
 

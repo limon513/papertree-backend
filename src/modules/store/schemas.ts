@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { bdPhone } from '../../lib/phone.ts';
 
 /** "a,b" or repeated ?brand=a&brand=b -> ["a", "b"]. */
 const list = z
@@ -9,8 +10,11 @@ const list = z
 export const productListQuery = z.object({
   category: z.string().trim().max(120).optional().meta({ description: 'Category slug; includes its sub-categories' }),
   brand: list.meta({ description: 'Brand slug(s), comma separated' }),
-  q: z.string().trim().max(100).optional().meta({ description: 'Search words (name, brand, tags, SKU)' }),
-  sort: z.enum(['popular', 'newest', 'price_asc', 'price_desc', 'name', 'deals']).default('popular'),
+  q: z.string().trim().max(100).optional().meta({ description: 'Search words: typos are fixed, synonyms used ("khata" = notebook), a SKU is found' }),
+  sort: z
+    .enum(['relevance', 'popular', 'newest', 'price_asc', 'price_desc', 'name', 'deals'])
+    .optional()
+    .meta({ description: 'Default: relevance when searching, else popular' }),
   min: z.coerce.number().min(0).optional(),
   max: z.coerce.number().min(0).optional(),
   inStock: z
@@ -29,6 +33,15 @@ export type ProductListQuery = z.infer<typeof productListQuery>;
 
 export const suggestQuery = z.object({ q: z.string().trim().min(1).max(100) });
 
+/** One search made on the website, as the browser reports it. */
+export const searchLogBody = z
+  .object({
+    query: z.string().trim().min(1).max(100),
+    results: z.number().int().min(0).max(100_000),
+    correctedTo: z.string().trim().max(100).nullable().default(null),
+  })
+  .meta({ id: 'StoreSearchLogBody' });
+
 export const cartBody = z
   .object({
     items: z
@@ -39,3 +52,15 @@ export const cartBody = z
     areaId: z.string().nullable().default(null),
   })
   .meta({ id: 'StoreCartBody' });
+
+/** "Request this product" from the website. */
+export const productRequestBody = z
+  .object({
+    name: z.string({ error: 'Enter your name' }).trim().min(1, { error: 'Enter your name' }).max(100),
+    phone: bdPhone,
+    details: z.string({ error: 'Tell us what you are looking for' }).trim().min(2, { error: 'Tell us what you are looking for' }).max(1000),
+    query: z.string().trim().max(100).nullable().default(null),
+    /** Left empty by people; bots fill every box. */
+    website: z.string().max(200).optional(),
+  })
+  .meta({ id: 'StoreProductRequestBody' });

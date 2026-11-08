@@ -11,6 +11,8 @@ import { productsDocs } from '../modules/admin/products/docs.ts';
 import { rolesDocs } from '../modules/admin/roles/docs.ts';
 import { settingsDocs } from '../modules/admin/settings/docs.ts';
 import { staffDocs } from '../modules/admin/staff/docs.ts';
+import { searchDocs } from '../modules/admin/search/docs.ts';
+import { requestsDocs } from '../modules/admin/requests/docs.ts';
 
 /** The OpenAPI document, built from the same zod schemas the routes use to validate requests. */
 export function buildOpenApiDocument() {
@@ -46,6 +48,8 @@ export function buildOpenApiDocument() {
       ...settingsDocs,
       ...ordersDocs,
       ...customersDocs,
+      ...searchDocs,
+      ...requestsDocs,
       ...storeDocs,
     },
   });
