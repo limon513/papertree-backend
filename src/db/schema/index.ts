@@ -9,3 +9,4 @@ export * from './orders.ts';
 export * from './search.ts';
 export * from './leads.ts';
 export * from './content.ts';
+export * from './integrations.ts';

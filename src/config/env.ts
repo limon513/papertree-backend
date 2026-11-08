@@ -40,6 +40,16 @@ const schema = z
      * set it when a CDN or custom domain sits in front.
      */
     MEDIA_PUBLIC_URL: z.string().optional(),
+
+    /**
+     * Master key for secrets saved in the admin (email and SMS API keys, payment passwords):
+     * 32 random bytes, base64. The same key on every server that shares the database.
+     * Make one with: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+     */
+    SECRETS_KEY: z
+      .string()
+      .optional()
+      .refine((v) => !v || Buffer.from(v, 'base64').length === 32, 'SECRETS_KEY must be 32 bytes, base64'),
   })
   .superRefine((e, ctx) => {
     if (e.STORAGE_DRIVER !== 's3') return;

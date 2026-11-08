@@ -14,6 +14,7 @@ import { rolesRouter } from './roles/routes.ts';
 import { searchReportRouter, synonymsRouter } from './search/routes.ts';
 import { placesRouter, settingsRouter, storeInfoRouter } from './settings/routes.ts';
 import { staffRouter } from './staff/routes.ts';
+import { integrationsRouter } from './integrations/routes.ts';
 
 /** Everything under /v1/admin. */
 export const adminRouter = Router();
@@ -37,3 +38,4 @@ adminRouter.use('/search-synonyms', requireAdmin, requireModule('products'), syn
 adminRouter.use('/search-report', requireAdmin, requireModule('reports'), searchReportRouter);
 adminRouter.use('/product-requests', requireAdmin, requireModule('leads'), productRequestsRouter);
 adminRouter.use('/banners', requireAdmin, requireModule('content'), bannersRouter);
+adminRouter.use('/integrations', requireAdmin, requireSuperAdmin, integrationsRouter);
