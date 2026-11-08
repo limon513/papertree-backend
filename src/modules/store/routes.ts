@@ -255,13 +255,13 @@ storeRouter.get('/products/:slug', async (req, res) => {
   const path = [];
   for (let c = primary; c; c = c.parentId ? cats.byId.get(c.parentId) : undefined) path.unshift({ name: c.name, slug: c.slug });
 
-  const related = primary
-    ? await cards(
-        and_([inCategories([primary.id, ...cats.descendants(primary.id)]), sql`c.id <> ${product.id}`, sql`c.in_stock`]),
-        SORTS.popular,
-        12,
-      )
-    : { items: [] };
+  // "You may also need": in stock from the same category; a small category widens to its parent
+  // ("School Bags" -> "School Supplies") until there are at least 4.
+  let related: { items: Awaited<ReturnType<typeof cards>>['items'] } = { items: [] };
+  for (let c = primary; c; c = c.parentId ? cats.byId.get(c.parentId) : undefined) {
+    related = await cards(and_([inCategories([c.id, ...cats.descendants(c.id)]), sql`c.id <> ${product.id}`, sql`c.in_stock`]), SORTS.popular, 12);
+    if (related.items.length >= 4) break;
+  }
 
   cache(res, 60).json({
     id: product.id,
