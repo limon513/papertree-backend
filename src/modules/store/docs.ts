@@ -57,7 +57,7 @@ export const storeDocs: ZodOpenApiPathsObject = {
     get: {
       tags,
       summary: 'A product page',
-      description: `${note} Images, variants with price and stock, specifications, breadcrumbs and related products.`,
+      description: `${note} Images, variants with price and stock, specifications, breadcrumbs, and up to 12 related products in stock (from the same category, widened to its parent when it has fewer than 4).`,
       requestParams: { path: z.object({ slug: z.string() }) },
       responses: { '200': json(open.meta({ id: 'StoreProduct' })), ...errors(404) },
     },

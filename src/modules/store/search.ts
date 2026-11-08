@@ -209,3 +209,8 @@ export function nameMatches(name: string, plan: SearchPlan) {
     alternatives.some((phrase) => phrase.every((w) => words.some((nw) => nw.startsWith(w) || w === `${nw}s` || w === `${nw}es`))),
   );
 }
+
+/** Load the shop's words when the API starts, so the first search after a restart does not wait. */
+export function warmSearch() {
+  knowledge().catch(() => undefined);
+}

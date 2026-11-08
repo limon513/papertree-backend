@@ -4,9 +4,11 @@ import { boss } from './jobs/boss.ts';
 import { startWorkers } from './jobs/workers.ts';
 import { logger } from './lib/logger.ts';
 import { createApp } from './app.ts';
+import { warmSearch } from './modules/store/search.ts';
 
 const server = createApp().listen(env.PORT, () => {
   logger.info(`API running on http://localhost:${env.PORT}`);
+  warmSearch();
 });
 
 // Background jobs (imports) run in this process unless JOB_WORKERS=false
