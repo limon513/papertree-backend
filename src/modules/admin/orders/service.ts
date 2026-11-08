@@ -13,7 +13,7 @@ import {
   type OrderStatus,
   type PaymentStatus,
 } from '../../../db/schema/index.ts';
-import { badRequest, notFound } from '../../../lib/errors.ts';
+import { AppError, badRequest, notFound } from '../../../lib/errors.ts';
 import { rememberAddress, wholesaleTermsFor } from '../customers/service.ts';
 import { changeStock, type Tx } from '../products/service.ts';
 import { AREAS, DISTRICTS, getSettings, listZones, quote } from '../settings/service.ts';
@@ -236,19 +236,40 @@ const itemRows = (orderId: number, built: Awaited<ReturnType<typeof build>>) =>
     position: i.position,
   }));
 
-export async function createOrder(input: OrderInput, adminUserId: number) {
+export interface CreateOrderExtras {
+  /** The total the shopper saw. If prices changed since, the order is not placed (409 PRICE_CHANGED). */
+  expectedTotal?: number;
+  /** Website orders: the secret for the "thank you" link. */
+  publicToken?: string;
+  /** Website orders: the browser's id for this attempt (one order per id). */
+  requestId?: string;
+}
+
+/** Places an order. `adminUserId` is null for orders from the website. */
+export async function createOrder(input: OrderInput, adminUserId: number | null, extras: CreateOrderExtras = {}) {
   return db.transaction(async (tx) => {
     const locationId = input.locationId ?? (await defaultLocationId(tx));
     const built = await build(tx, input, locationId);
+    if (extras.expectedTotal !== undefined && Math.abs(extras.expectedTotal - built.values.total) > 0.009) {
+      throw new AppError(409, 'PRICE_CHANGED', `Prices changed: the total is now ${taka(built.values.total)}. Please check your order and place it again.`);
+    }
     const customerId = await customerFor(tx, input);
     const [order] = await tx
       .insert(orders)
-      .values({ ...built.values, customerId, createdBy: adminUserId })
-      .returning({ id: orders.id, number: orders.number });
+      .values({ ...built.values, customerId, createdBy: adminUserId, publicToken: extras.publicToken ?? null, requestId: extras.requestId ?? null })
+      .returning({ id: orders.id, number: orders.number, total: orders.total, publicToken: orders.publicToken });
     const rows = itemRows(order!.id, built);
     await tx.insert(orderItems).values(rows);
-    for (const row of rows) {
-      if (row.stockTaken) await changeStock(tx, row.variantId, locationId, -row.stockTaken, 'order', adminUserId, `Order #${order!.number}`);
+    for (const [i, row] of rows.entries()) {
+      if (!row.stockTaken) continue;
+      const left = await changeStock(tx, row.variantId!, locationId, -row.stockTaken, 'order', adminUserId, `Order #${order!.number}`);
+      // Someone else took the last ones a moment ago (the stock row is locked, so this is exact).
+      const v = built.items[i]!.variant;
+      if (left < 0 && !v.allowBackorder) {
+        const available = left + row.stockTaken;
+        const message = available > 0 ? `Only ${available} in stock` : 'Out of stock';
+        throw badRequest(`${v.name}: ${message.toLowerCase()}`, { [`items.${i}.quantity`]: message });
+      }
     }
     await event(tx, order!.id, 'created', `Order placed (${input.channel}), ${taka(built.values.total)}`, adminUserId);
     return order!;
