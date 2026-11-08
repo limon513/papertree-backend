@@ -75,6 +75,10 @@ export const orders = pgTable(
     deliveredAt: timestamptz('delivered_at'),
     cancelledAt: timestamptz('cancelled_at'),
     createdBy: ref('created_by').references(() => adminUsers.id, { onDelete: 'set null' }),
+    /** Website orders: the secret in the shopper's "thank you" link (no sign-in needed to see their order). */
+    publicToken: text('public_token').unique(),
+    /** Website orders: the browser's id for this attempt, so a double tap or a retry never makes two orders. */
+    requestId: text('request_id').unique(),
     ...timestamps,
   },
   (t) => [

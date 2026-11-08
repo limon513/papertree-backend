@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { bdPhone } from '../../lib/phone.ts';
+import { emailSchema, nameSchema, optionalText } from '../admin/schemas.ts';
 
 /** "a,b" or repeated ?brand=a&brand=b -> ["a", "b"]. */
 const list = z
@@ -64,3 +65,31 @@ export const productRequestBody = z
     website: z.string().max(200).optional(),
   })
   .meta({ id: 'StoreProductRequestBody' });
+
+/** Placing an order from the website (cash on delivery for now). */
+export const checkoutBody = z
+  .object({
+    name: nameSchema,
+    phone: bdPhone,
+    email: emailSchema.nullable().or(z.literal('').transform(() => null)).default(null),
+    districtId: z.string({ error: 'Choose your district' }).min(1, { error: 'Choose your district' }),
+    areaId: z.string().nullable().default(null),
+    address: z
+      .string({ error: 'Enter your address' })
+      .trim()
+      .min(5, { error: 'Enter the full address (house, road, area)' })
+      .max(500, { error: 'The address is too long' }),
+    note: optionalText(1000).default(null),
+    items: z
+      .array(z.object({ variantId: z.number().int().positive(), quantity: z.number().int().min(1).max(9999) }))
+      .min(1, { error: 'Your cart is empty' })
+      .max(100),
+    paymentMethod: z.enum(['cod']).default('cod'),
+    /** The total the shopper saw: if prices changed since, the order is not placed (409 PRICE_CHANGED). */
+    expectedTotal: z.number().min(0),
+    /** A new id per checkout attempt; sending the same one again returns the same order. */
+    requestId: z.string().min(8).max(64),
+    /** Left empty by people; bots fill every box. */
+    website: z.string().max(200).optional(),
+  })
+  .meta({ id: 'StoreCheckoutBody' });

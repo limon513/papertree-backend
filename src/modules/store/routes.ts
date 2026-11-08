@@ -9,6 +9,7 @@ import { AREAS, DISTRICTS, getSettings, listZones, LOCATIONS, quote } from '../a
 import { activeCategories, cards, CURRENT_PRICE, facets, imagesById, inCategories, LOW_STOCK, SORTS } from './catalog.ts';
 import { cartBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
 import { nameMatches, planSearch, productBySku, searchRank, searchWhere } from './search.ts';
+import { storeOrdersRouter } from './orders.ts';
 
 /** Public API for the website. Read-only, no sign-in. Mounted at /v1/store. */
 export const storeRouter = Router();
@@ -386,3 +387,7 @@ storeRouter.post('/cart', async (req, res) => {
 
   res.json({ lines, itemCount: ok.reduce((s, l) => s + l.quantity, 0), subtotal, weightKg, delivery });
 });
+
+// ---- Orders (checkout) ----
+
+storeRouter.use('/orders', storeOrdersRouter);

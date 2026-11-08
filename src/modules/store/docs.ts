@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ZodOpenApiPathsObject } from 'zod-openapi';
 import { errors, json, jsonBody } from '../../docs/common.ts';
 import { locationsSchema } from '../admin/settings/schemas.ts';
-import { cartBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
+import { cartBody, checkoutBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
 
 const tags = ['Store (public)'];
 const open = z.object({}).catchall(z.unknown());
@@ -91,6 +91,34 @@ export const storeDocs: ZodOpenApiPathsObject = {
         'At most 5 per visitor per hour. "website" must stay empty (a hidden box that only bots fill).',
       requestBody: jsonBody(productRequestBody),
       responses: { '201': json(z.object({ ok: z.boolean() }), 'Sent'), ...errors(400, 429) },
+    },
+  },
+  '/v1/store/orders': {
+    post: {
+      tags,
+      summary: 'Place an order (checkout)',
+      description:
+        'Cash on delivery. Prices, stock and the delivery charge are worked out by the API, never taken from the browser. ' +
+        'The customer is found by phone number (or added) and the address saved. Stock is taken at once. ' +
+        '409 PRICE_CHANGED: the total is no longer expectedTotal (prices changed); check the cart and send again. ' +
+        '400 with fields items.N.quantity: not enough stock (someone may have just bought the last ones). ' +
+        'The same requestId again returns the order already placed (200), so retries never make two orders. ' +
+        'At most 20 orders per connection per hour. Returns the order number and the token for GET /v1/store/orders/{token}.',
+      requestBody: jsonBody(checkoutBody),
+      responses: {
+        '201': json(z.object({ number: z.number(), token: z.string().nullable(), total: z.number() }).meta({ id: 'StoreOrderPlaced' }), 'Placed'),
+        '200': json(z.object({ number: z.number(), token: z.string().nullable(), total: z.number() }), 'Already placed (same requestId)'),
+        ...errors(400, 409, 429),
+      },
+    },
+  },
+  '/v1/store/orders/{token}': {
+    get: {
+      tags,
+      summary: 'An order, for its thank-you page',
+      description: 'The token from placing the order is the only key (no sign-in). Items, address, totals and status.',
+      requestParams: { path: z.object({ token: z.string() }) },
+      responses: { '200': json(open.meta({ id: 'StoreOrder' })), ...errors(404) },
     },
   },
 };
