@@ -13,6 +13,7 @@ import { logger } from './lib/logger.ts';
 import { LOCAL_UPLOADS_DIR } from './lib/storage.ts';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.ts';
 import { adminRouter } from './modules/admin/router.ts';
+import { storeRouter } from './modules/store/routes.ts';
 
 const ICONS_DIR = join(import.meta.dirname, '..', 'public', 'icons');
 
@@ -44,7 +45,7 @@ export function createApp() {
     );
   }
 
-  app.use(cors({ origin: [env.ADMIN_APP_URL], credentials: true }));
+  app.use(cors({ origin: [env.ADMIN_APP_URL, env.STOREFRONT_URL], credentials: true }));
   app.use(
     pinoHttp({
       logger,
@@ -68,6 +69,7 @@ export function createApp() {
   });
 
   app.use('/v1/admin', adminRouter);
+  app.use('/v1/store', storeRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
