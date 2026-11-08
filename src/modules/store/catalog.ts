@@ -136,7 +136,18 @@ export type SortKey = keyof typeof SORTS;
 export async function cards(where: SQL, order: SQL, limit: number, offset = 0) {
   const locationId = await defaultLocationId();
   const { rows } = await db.execute<CardRow & { total_count: string }>(cardsQuery(locationId, where, order, limit, offset));
-  const images = await imagesById(rows.map((r) => (r.image_id ? Number(r.image_id) : null)));
+  // Up to 3 more pictures per product, shown when the card is pointed at (only for this page's products).
+  const ids = rows.map((r) => Number(r.id));
+  const { rows: extra } = ids.length
+    ? await db.execute<{ product_id: string; media_id: string }>(sql`
+        select x.product_id, x.media_id from (
+          select pi.product_id, pi.media_id, row_number() over (partition by pi.product_id order by pi.position) as n
+          from product_images pi where pi.product_id in (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+        ) x where x.n between 2 and 4 order by x.product_id, x.n`)
+    : { rows: [] };
+  const images = await imagesById([...rows.map((r) => (r.image_id ? Number(r.image_id) : null)), ...extra.map((e) => Number(e.media_id))]);
+  const moreOf = (productId: number) =>
+    extra.filter((e) => Number(e.product_id) === productId).flatMap((e) => images.get(Number(e.media_id)) ?? []);
   let total = rows.length ? Number(rows[0]!.total_count) : 0;
   // A page past the end has no rows to carry the count: count separately, so the real total is known.
   if (!rows.length && offset > 0) {
@@ -155,6 +166,8 @@ export async function cards(where: SQL, order: SQL, limit: number, offset = 0) {
         name: r.name,
         brand: r.brand_name ? { name: r.brand_name, slug: r.brand_slug! } : null,
         image: r.image_id ? (images.get(Number(r.image_id)) ?? null) : null,
+        /** More pictures (up to 3), for the card's picture-on-hover. */
+        moreImages: moreOf(Number(r.id)),
         price,
         regularPrice: regular > price ? regular : null,
         /** Add straight from the card when there is only one variant. */
