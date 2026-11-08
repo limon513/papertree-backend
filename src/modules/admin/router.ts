@@ -6,6 +6,7 @@ import { categoriesRouter } from './categories/routes.ts';
 import { importsRouter } from './imports/routes.ts';
 import { iconsRouter, mediaRouter } from './media/routes.ts';
 import { customersRouter } from './customers/routes.ts';
+import { bannersRouter } from './content/routes.ts';
 import { ordersRouter } from './orders/routes.ts';
 import { productsRouter, stockLocationsRouter } from './products/routes.ts';
 import { productRequestsRouter } from './requests/routes.ts';
@@ -35,3 +36,4 @@ adminRouter.use('/customers', requireAdmin, requireModule('customers'), customer
 adminRouter.use('/search-synonyms', requireAdmin, requireModule('products'), synonymsRouter);
 adminRouter.use('/search-report', requireAdmin, requireModule('reports'), searchReportRouter);
 adminRouter.use('/product-requests', requireAdmin, requireModule('leads'), productRequestsRouter);
+adminRouter.use('/banners', requireAdmin, requireModule('content'), bannersRouter);
