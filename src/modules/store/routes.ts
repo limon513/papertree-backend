@@ -157,7 +157,7 @@ storeRouter.get('/suggest', async (req, res) => {
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const matches = (text: string) => words.every((w) => text.toLowerCase().includes(w));
   const [found, cats, brandRows] = await Promise.all([
-    cards(searchFilter(q), sql`c.in_stock desc, c.sold desc, c.published desc`, 6),
+    cards(searchFilter(q), SORTS.popular, 6),
     activeCategories(),
     db.select({ name: brands.name, slug: brands.slug }).from(brands).where(eq(brands.isActive, true)),
   ]);
