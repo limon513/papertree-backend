@@ -37,9 +37,16 @@ async function iconBody(key: string) {
   return svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '');
 }
 
-/** A 1200×1200 product picture. `hue` is 0–360. */
-export async function productPicture(name: string, icon: string, hue: number) {
+/**
+ * A 1200×1200 product picture. `hue` is 0–360. `caption` adds a small label at the top ("Back",
+ * "Red"), so a product's extra pictures and its colours look different from each other.
+ */
+export async function productPicture(name: string, icon: string, hue: number, caption?: string) {
   const lines = wrap(name, 26, 3);
+  const label = caption
+    ? `<rect x="420" y="70" width="360" height="84" rx="42" fill="hsl(${hue} 45% 30%)"/>
+  <text x="600" y="126" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="44" font-weight="600" fill="#ffffff">${escapeXml(caption)}</text>`
+    : '';
   const text = lines
     .map((l, i) => `<tspan x="600" dy="${i === 0 ? 0 : 64}">${escapeXml(l)}</tspan>`)
     .join('');
@@ -53,6 +60,7 @@ export async function productPicture(name: string, icon: string, hue: number) {
   <rect width="1200" height="1200" fill="url(#bg)"/>
   <circle cx="600" cy="500" r="290" fill="#ffffff" fill-opacity="0.75"/>
   <svg x="390" y="290" width="420" height="420" viewBox="0 0 32 32">${await iconBody(icon)}</svg>
+  ${label}
   <text x="600" y="${930 - (lines.length - 1) * 32}" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif"
     font-size="54" font-weight="600" fill="hsl(${hue} 35% 22%)">${text}</text>
 </svg>`;
