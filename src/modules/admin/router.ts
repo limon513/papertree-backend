@@ -8,7 +8,9 @@ import { iconsRouter, mediaRouter } from './media/routes.ts';
 import { customersRouter } from './customers/routes.ts';
 import { ordersRouter } from './orders/routes.ts';
 import { productsRouter, stockLocationsRouter } from './products/routes.ts';
+import { productRequestsRouter } from './requests/routes.ts';
 import { rolesRouter } from './roles/routes.ts';
+import { searchReportRouter, synonymsRouter } from './search/routes.ts';
 import { placesRouter, settingsRouter, storeInfoRouter } from './settings/routes.ts';
 import { staffRouter } from './staff/routes.ts';
 
@@ -30,3 +32,6 @@ adminRouter.use('/store-info', requireAdmin, storeInfoRouter);
 adminRouter.use('/settings', requireAdmin, requireModule('settings'), settingsRouter);
 adminRouter.use('/orders', requireAdmin, requireModule('orders'), ordersRouter);
 adminRouter.use('/customers', requireAdmin, requireModule('customers'), customersRouter);
+adminRouter.use('/search-synonyms', requireAdmin, requireModule('products'), synonymsRouter);
+adminRouter.use('/search-report', requireAdmin, requireModule('reports'), searchReportRouter);
+adminRouter.use('/product-requests', requireAdmin, requireModule('leads'), productRequestsRouter);

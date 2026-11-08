@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ZodOpenApiPathsObject } from 'zod-openapi';
 import { errors, json, jsonBody } from '../../docs/common.ts';
 import { locationsSchema } from '../admin/settings/schemas.ts';
-import { cartBody, productListQuery, suggestQuery } from './schemas.ts';
+import { cartBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
 
 const tags = ['Store (public)'];
 const open = z.object({}).catchall(z.unknown());
@@ -37,7 +37,9 @@ export const storeDocs: ZodOpenApiPathsObject = {
     get: {
       tags,
       summary: 'List products (category, brand, search, deals)',
-      description: `${note} With the category (breadcrumbs, sub-categories) and filters: brands with counts and the price range.`,
+      description:
+        `${note} With the category (breadcrumbs, sub-categories) and filters: brands with counts and the price range. ` +
+        'With q, "search" tells what was searched: typos fixed (corrected, searched), whether only some words matched (partial), and a product slug when q is exactly a SKU (sku).',
       requestParams: { query: productListQuery },
       responses: { '200': json(open.meta({ id: 'StoreProductList' })), ...errors(400, 404) },
     },
@@ -46,7 +48,7 @@ export const storeDocs: ZodOpenApiPathsObject = {
     get: {
       tags,
       summary: 'Search as you type',
-      description: `${note} Up to 6 products, 4 categories and 3 brands.`,
+      description: `${note} Up to 6 products (best match first, typos fixed, synonyms used), 4 categories and 3 brands.`,
       requestParams: { query: suggestQuery },
       responses: { '200': json(open.meta({ id: 'StoreSuggest' })), ...errors(400) },
     },
@@ -69,6 +71,26 @@ export const storeDocs: ZodOpenApiPathsObject = {
         'and with a district the delivery charge and how much more is needed for free delivery. Nothing is saved.',
       requestBody: jsonBody(cartBody),
       responses: { '200': json(open.meta({ id: 'StoreCart' })), ...errors(400) },
+    },
+  },
+  '/v1/store/search-log': {
+    post: {
+      tags,
+      summary: 'Record a search',
+      description: "Sent by the shopper's browser after a search page shows, for the search report (searches with no results, corrected words). Nothing is returned.",
+      requestBody: jsonBody(searchLogBody),
+      responses: { '204': { description: 'Recorded' } },
+    },
+  },
+  '/v1/store/product-requests': {
+    post: {
+      tags,
+      summary: 'Request a product',
+      description:
+        'A shopper asks for something the shop does not have (from a search that found nothing). Staff see it in the admin. ' +
+        'At most 5 per visitor per hour. "website" must stay empty (a hidden box that only bots fill).',
+      requestBody: jsonBody(productRequestBody),
+      responses: { '201': json(z.object({ ok: z.boolean() }), 'Sent'), ...errors(400, 429) },
     },
   },
 };
