@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { boolean, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { id, ref, timestamps } from './_helpers.ts';
+import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { id, ref, timestamps, timestamptz } from './_helpers.ts';
 
 export type CustomerType = 'retail' | 'business';
 /** A business account asks for wholesale prices; staff approve it. */
@@ -39,6 +39,11 @@ export const customers = pgTable(
     blockedReason: text('blocked_reason'),
     /** Staff only. */
     note: text('note'),
+    /** Their Google account (Firebase user id), once they signed in with Google. */
+    googleId: text('google_id').unique(),
+    /** Their Google account photo: only the address, shown straight from Google (nothing stored here). */
+    avatarUrl: text('avatar_url'),
+    lastSignInAt: timestamptz('last_sign_in_at'),
     ...timestamps,
   },
   (t) => [
@@ -71,4 +76,45 @@ export const customerAddresses = pgTable(
     // One default address per customer.
     uniqueIndex('customer_addresses_one_default_idx').on(t.customerId).where(sql`${t.isDefault}`),
   ],
+);
+
+/** A signed-in customer on the website. The id is the SHA-256 of the cookie token (the token is never stored). */
+export const customerSessions = pgTable(
+  'customer_sessions',
+  {
+    id: text('id').primaryKey(),
+    customerId: ref('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    /**
+     * How they signed in. 'order' = signed in by placing their first order (the phone was not checked):
+     * such sessions end when someone confirms the phone with a code.
+     */
+    via: text('via').$type<'code' | 'google' | 'order'>().notNull().default('code'),
+    ip: text('ip'),
+    userAgent: text('user_agent'),
+    expiresAt: timestamptz('expires_at').notNull(),
+    lastUsedAt: timestamptz('last_used_at').notNull().defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('customer_sessions_customer_id_idx').on(t.customerId)],
+);
+
+/**
+ * One-time sign-in codes sent by SMS. Only a hash is stored; a code works once, for 5 minutes,
+ * with a few tries.
+ */
+export const customerLoginCodes = pgTable(
+  'customer_login_codes',
+  {
+    id: id(),
+    phone: text('phone').notNull(),
+    codeHash: text('code_hash').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    expiresAt: timestamptz('expires_at').notNull(),
+    usedAt: timestamptz('used_at'),
+    ip: text('ip'),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('customer_login_codes_phone_idx').on(t.phone, t.createdAt)],
 );

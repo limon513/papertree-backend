@@ -137,7 +137,11 @@ export async function sendEmail(message: { to: string; subject: string; html: st
 }
 
 /** Sends an SMS with the shop's SMS service (test mode: only written to the log). Never throws. */
-export async function sendSms(message: { to: string; text: string; purpose: Purpose }) {
+/**
+ * `logText`: what the log keeps once SMS really goes out (e.g. a sign-in code hidden). In test mode the
+ * full text is kept, as the log is then the only place to read it.
+ */
+export async function sendSms(message: { to: string; text: string; logText?: string; purpose: Purpose }) {
   const { settings } = await getIntegration('sms');
   const [row] = await db
     .insert(messageLog)

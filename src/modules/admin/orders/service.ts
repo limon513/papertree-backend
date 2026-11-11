@@ -192,7 +192,11 @@ async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = ne
  * The customer with this phone number, created if new (a wholesale order by staff makes an approved business).
  * Name and email are filled in when missing, and the address is saved for next time.
  */
-async function customerFor(tx: Tx, input: OrderInput) {
+async function customerFor(tx: Tx, input: OrderInput, knownId?: number) {
+  if (knownId) {
+    await rememberAddress(tx, knownId, { districtId: input.districtId, areaId: input.areaId, address: input.address });
+    return { id: knownId, created: false };
+  }
   const [found] = await tx.select().from(customers).where(eq(customers.phone, input.customer.phone));
   let id = found?.id;
   if (found) {
@@ -212,7 +216,7 @@ async function customerFor(tx: Tx, input: OrderInput) {
     id = created!.id;
   }
   await rememberAddress(tx, id!, { districtId: input.districtId, areaId: input.areaId, address: input.address });
-  return id!;
+  return { id: id!, created: !found };
 }
 
 const event = (tx: Tx, orderId: number, type: OrderEventType, message: string, adminUserId: number | null) =>
@@ -243,6 +247,8 @@ export interface CreateOrderExtras {
   publicToken?: string;
   /** Website orders: the browser's id for this attempt (one order per id). */
   requestId?: string;
+  /** Website orders from a signed-in shopper: the order is theirs, whatever phone is given. */
+  customerId?: number;
 }
 
 /** Places an order. `adminUserId` is null for orders from the website. */
@@ -253,7 +259,8 @@ export async function createOrder(input: OrderInput, adminUserId: number | null,
     if (extras.expectedTotal !== undefined && Math.abs(extras.expectedTotal - built.values.total) > 0.009) {
       throw new AppError(409, 'PRICE_CHANGED', `Prices changed: the total is now ${taka(built.values.total)}. Please check your order and place it again.`);
     }
-    const customerId = await customerFor(tx, input);
+    const customer = await customerFor(tx, input, extras.customerId);
+    const customerId = customer.id;
     const [order] = await tx
       .insert(orders)
       .values({ ...built.values, customerId, createdBy: adminUserId, publicToken: extras.publicToken ?? null, requestId: extras.requestId ?? null })
@@ -272,7 +279,7 @@ export async function createOrder(input: OrderInput, adminUserId: number | null,
       }
     }
     await event(tx, order!.id, 'created', `Order placed (${input.channel}), ${taka(built.values.total)}`, adminUserId);
-    return order!;
+    return { ...order!, customerId, newCustomer: customer.created };
   });
 }
 
@@ -308,7 +315,7 @@ export async function updateOrder(id: number, input: OrderInput, adminUserId: nu
       if (row.stockTaken) await changeStock(tx, row.variantId, locationId, -row.stockTaken, 'order', adminUserId, note);
     }
 
-    const customerId = await customerFor(tx, input);
+    const customerId = (await customerFor(tx, input)).id;
     await tx
       .update(orders)
       .set({ ...built.values, customerId, paymentStatus: paymentStatusOf(order.paidAmount, built.values.total, await hadRefund(tx, id)) })

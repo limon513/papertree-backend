@@ -1,0 +1,1 @@
+ALTER TABLE "customer_sessions" ADD COLUMN "via" text DEFAULT 'code' NOT NULL;

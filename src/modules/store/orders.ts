@@ -1,13 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.ts';
-import { deliveryZones, orderItems, orders } from '../../db/schema/index.ts';
-import { notFound } from '../../lib/errors.ts';
+import { customers, deliveryZones, orderItems, orders } from '../../db/schema/index.ts';
+import { forbidden, notFound } from '../../lib/errors.ts';
 import { QUEUES, sendJob } from '../../jobs/boss.ts';
 import { logger } from '../../lib/logger.ts';
 import { createOrder } from '../admin/orders/service.ts';
+import { currentCustomer, signIn } from './account/session.ts';
 import { imagesById } from './catalog.ts';
 import { checkoutBody } from './schemas.ts';
 
@@ -51,6 +52,10 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
     res.json(placed(again));
     return;
   }
+  // A signed-in shopper's order is theirs, whatever phone they give for this delivery.
+  const me = await currentCustomer(req);
+  const [byPhone] = me ? [] : await db.select({ isBlocked: customers.isBlocked }).from(customers).where(eq(customers.phone, phone));
+  if (byPhone?.isBlocked) throw forbidden('We cannot take this order on the website. Please call us to order.');
   try {
     const order = await createOrder(
       {
@@ -65,8 +70,11 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
         staffNote: null,
       },
       null,
-      { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url') },
+      { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url'), customerId: me?.id },
     );
+    // A first order from a new number signs them in, so the next order is quicker. Such a sign-in ends
+    // as soon as someone confirms that number with a code.
+    if (!me && order.newCustomer) await signIn(res, req, order.customerId, 'order');
     res.status(201).json(placed(order));
     // Emails go out in the background: the shopper never waits for them, and a failure never undoes the order.
     sendJob(QUEUES.orderPlaced, { orderId: order.id }).catch((err) => logger.error({ err, order: order.number }, 'Could not queue the order emails'));
@@ -81,20 +89,18 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
   }
 });
 
-/** The shopper's order, for the "thank you" page. The token in the link is the only key: no sign-in. */
-storeOrdersRouter.get('/:token', async (req, res) => {
-  const token = String(req.params.token);
-  if (!/^[\w-]{20,40}$/.test(token)) throw notFound('Order not found');
+/** An order as the shopper sees it. */
+export async function orderView(where: SQL) {
   const [order] = await db
     .select({ order: orders, deliveryTime: deliveryZones.deliveryTime })
     .from(orders)
     .leftJoin(deliveryZones, eq(deliveryZones.id, orders.deliveryZoneId))
-    .where(eq(orders.publicToken, token));
-  if (!order) throw notFound('Order not found');
+    .where(where);
+  if (!order) return null;
   const o = order.order;
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, o.id)).orderBy(asc(orderItems.position));
   const images = await imagesById(items.map((i) => i.imageId));
-  res.set('cache-control', 'no-store').json({
+  return {
     number: o.number,
     status: o.status,
     createdAt: o.createdAt,
@@ -114,7 +120,17 @@ storeOrdersRouter.get('/:token', async (req, res) => {
       image: i.imageId ? (images.get(i.imageId) ?? null) : null,
     })),
     subtotal: o.subtotal,
+    discount: o.discount,
     deliveryFee: o.deliveryFee,
     total: o.total,
-  });
+  };
+}
+
+/** The shopper's order, for the "thank you" page. The token in the link is the only key: no sign-in. */
+storeOrdersRouter.get('/:token', async (req, res) => {
+  const token = String(req.params.token);
+  if (!/^[\w-]{20,40}$/.test(token)) throw notFound('Order not found');
+  const view = await orderView(eq(orders.publicToken, token));
+  if (!view) throw notFound('Order not found');
+  res.set('cache-control', 'no-store').json(view);
 });
