@@ -68,7 +68,9 @@ export const storeDocs: ZodOpenApiPathsObject = {
       summary: 'Check a cart',
       description:
         `${note} The cart lives in the browser; this returns today's prices, what is available (quantities are lowered to the stock), ` +
-        'and with a district the delivery charge and how much more is needed for free delivery. Nothing is saved.',
+        'and with a district the delivery charge and how much more is needed for free delivery. Nothing is saved. ' +
+        'Bulk discounts (Settings > Bulk discounts) are applied: each line has bulk { percent, discount, next } and lineTotal after it; subtotal is after them and bulkSavings is what they took off. ' +
+        'Placing the order works them out again the same way.',
       requestBody: jsonBody(cartBody),
       responses: { '200': json(open.meta({ id: 'StoreCart' })), ...errors(400) },
     },

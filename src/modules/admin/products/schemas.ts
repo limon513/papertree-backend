@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { productBulkSchema } from '../../../lib/bulk.ts';
 import { mediaSchema } from '../media/schemas.ts';
 import { optionalText, seoFields, slugInput } from '../schemas.ts';
 
@@ -101,6 +102,7 @@ export const productBody = z
       .max(MAX_VARIANTS, { error: `At most ${MAX_VARIANTS} variants` }),
     seoTitle: seoFields.seoTitle.default(null),
     seoDescription: seoFields.seoDescription.default(null),
+    bulkDiscount: productBulkSchema,
   })
   .superRefine((p, ctx) => {
     const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
@@ -253,6 +255,7 @@ export const productSchema = z
     variants: z.array(variantSchema),
     seoTitle: z.string().nullable(),
     seoDescription: z.string().nullable(),
+    bulkDiscount: z.unknown().nullable().meta({ description: "null: the shop's bulk discounts; {mode:'off'}; {mode:'own', tiers}" }),
     publishedAt: z.iso.datetime().nullable(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),

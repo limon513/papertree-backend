@@ -120,6 +120,13 @@
       "when": 1794413757860,
       "tag": "0016_customer_session_via",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794417264795,
+      "tag": "0017_bulk_discounts",
+      "breakpoints": true
     }
   ]
 }

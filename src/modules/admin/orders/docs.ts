@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { ZodOpenApiPathsObject } from 'zod-openapi';
 import { adminAuth, errors, idParam, json, jsonBody } from '../../../docs/common.ts';
 import { quoteBody, quoteSchema } from '../settings/schemas.ts';
@@ -14,6 +15,7 @@ import {
   statusBody,
   variantSearchQuery,
   variantSearchResult,
+  priceBody,
 } from './schemas.ts';
 
 const tags = ['Admin: Orders'];
@@ -60,6 +62,16 @@ export const ordersDocs: ZodOpenApiPathsObject = {
       description: `${access} Same rules as Settings > Delivery: zones, free delivery, weight and wholesale terms.`,
       requestBody: jsonBody(quoteBody),
       responses: { '200': json(quoteSchema), ...errors(400, 401, 403) },
+    },
+  },
+  '/v1/admin/orders/price': {
+    post: {
+      tags,
+      security,
+      summary: 'Prices for the order form',
+      description: `${access} Line prices and the subtotal exactly as the order would be saved, bulk discounts included (retail; a typed price only with bulk: true). Stock is not checked. Nothing is saved.`,
+      requestBody: jsonBody(priceBody),
+      responses: { '200': json(z.object({}).catchall(z.unknown()).meta({ id: 'OrderPrices' })), ...errors(400, 401, 403) },
     },
   },
   '/v1/admin/orders/customer-lookup': {

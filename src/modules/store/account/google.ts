@@ -1,8 +1,9 @@
 import { createHmac, createPublicKey, timingSafeEqual, verify, type webcrypto } from 'node:crypto';
+import { env } from '../../../config/env.ts';
+import { AppError, badRequest } from '../../../lib/errors.ts';
+import { logger } from '../../../lib/logger.ts';
 
 type JsonWebKey = webcrypto.JsonWebKey;
-import { env } from '../../../config/env.ts';
-import { badRequest } from '../../../lib/errors.ts';
 
 /**
  * Google sign-in (through Firebase): the website gets an ID token from Google; we check it here with
@@ -11,15 +12,29 @@ import { badRequest } from '../../../lib/errors.ts';
  */
 const KEYS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 let keys: { at: number; maxAge: number; list: (JsonWebKey & { kid: string })[] } | null = null;
+let lastTry = 0;
 
 async function publicKey(kid: string) {
-  if (!keys || Date.now() - keys.at > keys.maxAge || !keys.list.some((k) => k.kid === kid)) {
-    const res = await fetch(KEYS_URL, { signal: AbortSignal.timeout(10_000) });
-    if (!res.ok) throw new Error(`Google keys: ${res.status}`);
-    const maxAge = Number(res.headers.get('cache-control')?.match(/max-age=(\d+)/)?.[1] ?? 3600) * 1000;
-    keys = { at: Date.now(), maxAge, list: ((await res.json()) as { keys: (JsonWebKey & { kid: string })[] }).keys };
+  const stale = !keys || Date.now() - keys.at > keys.maxAge;
+  // Google adds new keys now and then: an unknown key id fetches again, but at most once a minute
+  // (made-up tokens must not make us call Google on every request).
+  const unknown = !!keys && !keys.list.some((k) => k.kid === kid) && Date.now() - lastTry > 60_000;
+  if (stale || unknown) {
+    lastTry = Date.now();
+    try {
+      const res = await fetch(KEYS_URL, { signal: AbortSignal.timeout(8_000) });
+      if (!res.ok) throw new Error(`Google keys: ${res.status}`);
+      const maxAge = Number(res.headers.get('cache-control')?.match(/max-age=(\d+)/)?.[1] ?? 3600) * 1000;
+      const list = ((await res.json()) as { keys?: (JsonWebKey & { kid: string })[] }).keys;
+      if (!Array.isArray(list) || !list.length) throw new Error('Google keys: empty list');
+      keys = { at: Date.now(), maxAge, list };
+    } catch (err) {
+      logger.warn({ err }, 'Could not load Google sign-in keys');
+      // The last keys we had still work for a while; without any, Google sign-in waits.
+      if (!keys) throw new AppError(503, 'UNAVAILABLE', 'Google sign-in cannot be reached right now. Please sign in with your phone number.');
+    }
   }
-  const jwk = keys.list.find((k) => k.kid === kid);
+  const jwk = keys!.list.find((k) => k.kid === kid);
   return jwk ? createPublicKey({ key: jwk, format: 'jwk' }) : null;
 }
 
