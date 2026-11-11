@@ -1,3 +1,4 @@
+import type { ProductBulk } from '../../lib/bulk.ts';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -69,6 +70,8 @@ export const products = pgTable(
     specs: jsonb('specs').$type<ProductSpec[]>().notNull().default([]),
     seoTitle: text('seo_title'),
     seoDescription: text('seo_description'),
+    /** Bulk discount for this product. null: the shop's (Settings > Checkout); {mode:'off'}; {mode:'own', tiers}. */
+    bulkDiscount: jsonb('bulk_discount').$type<ProductBulk>(),
     /** First time the product was published. */
     publishedAt: timestamptz('published_at'),
     createdBy: ref('created_by').references(() => adminUsers.id, { onDelete: 'set null' }),

@@ -1,3 +1,4 @@
+import { applyBulk, type ProductBulk } from '../../lib/bulk.ts';
 import { Router, type Response } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { and, asc, eq, gt, isNotNull, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
@@ -356,8 +357,9 @@ storeRouter.post('/cart', async (req, res) => {
         allow_backorder: boolean;
         qty: number;
         image_id: string | null;
+        bulk: ProductBulk;
       }>(sql`
-        select v.id, p.id as product_id, p.slug, p.name, p.status, p.options, v.option1, v.option2, v.option3, v.price,
+        select v.id, p.id as product_id, p.slug, p.name, p.status, p.options, p.bulk_discount as bulk, v.option1, v.option2, v.option3, v.price,
           ${CURRENT_PRICE} as cur, v.weight_grams, v.track_stock, v.allow_backorder, coalesce(il.quantity, 0) as qty,
           coalesce(v.image_id, (select pi.media_id from product_images pi where pi.product_id = p.id order by pi.position limit 1)) as image_id
         from product_variants v join products p on p.id = v.product_id
@@ -392,14 +394,31 @@ storeRouter.post('/cart', async (req, res) => {
     };
   });
 
-  const ok = lines.filter((l): l is Extract<typeof l, { price: number }> => 'price' in l && l.quantity > 0);
+  // Bulk discounts: worked out on what can be ordered, the same way as when the order is placed.
+  const checkout = await getSettings('checkout');
+  const priced = lines.filter((l): l is Extract<typeof l, { price: number }> => 'price' in l && l.quantity > 0);
+  const bulk = applyBulk(
+    priced.map((l) => ({ productId: l.productId, quantity: l.quantity, price: l.price, onSale: l.regularPrice !== null })),
+    checkout.bulk,
+    new Map(priced.map((l) => [l.productId, byId.get(l.variantId)!.bulk])),
+  );
+  // Matched by line (not by item id), so even the same item sent twice gets its own numbers.
+  const withBulk = new Map<object, (typeof bulk)[number]>(priced.map((l, k) => [l, bulk[k]!]));
+  const shown = lines.map((l) => {
+    const b = withBulk.get(l);
+    if (!('price' in l) || !b) return l;
+    // lineTotal: after the discount. bulk: what it took off, and the next step ("add 3 more for 10% off").
+    return { ...l, lineTotal: b.lineTotal, bulk: { percent: b.percent, discount: b.discount, next: b.next } };
+  });
+  const ok = shown.filter((l): l is Extract<typeof l, { price: number }> => 'price' in l && l.quantity > 0);
   const subtotal = Math.round(ok.reduce((s, l) => s + l.lineTotal, 0) * 100) / 100;
+  const bulkSavings = bulk.reduce((s, b) => s + b.discount, 0);
   const weightKg = ok.reduce((s, l) => s + (l.weightGrams ?? 0) * l.quantity, 0) / 1000;
 
   let delivery = null;
   if (input.districtId && DISTRICTS.has(input.districtId)) {
     const areaId = input.areaId && AREAS.get(input.areaId)?.districtId === input.districtId ? input.areaId : null;
-    const [zones, checkout] = await Promise.all([listZones(), getSettings('checkout')]);
+    const zones = await listZones();
     const q = quote(zones, checkout, { districtId: input.districtId, areaId, subtotal, weightKg, wholesale: false });
     const zone = zones.find((z) => z.id === q.zone?.id);
     delivery = {
@@ -412,7 +431,8 @@ storeRouter.post('/cart', async (req, res) => {
     };
   }
 
-  res.json({ lines, itemCount: ok.reduce((s, l) => s + l.quantity, 0), subtotal, weightKg, delivery });
+  // subtotal: after bulk discounts (bulkSavings is what they took off).
+  res.json({ lines: shown, itemCount: ok.reduce((s, l) => s + l.quantity, 0), subtotal, bulkSavings, weightKg, delivery });
 });
 
 // ---- Orders (checkout) ----

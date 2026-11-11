@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { bulkTiersSchema } from '../../../lib/bulk.ts';
 import { optionalBdPhone } from '../../../lib/phone.ts';
 import { mediaSchema } from '../media/schemas.ts';
 import { emailSchema, nameSchema, optionalText } from '../schemas.ts';
@@ -72,6 +73,14 @@ export const checkoutSettings = z
           ctx.addIssue({ code: 'custom', path: ['deliveryFee'], message: 'Enter the delivery charge' });
         }
       }),
+    /** Buy more, pay less per piece (retail). Products can use their own steps or none. */
+    bulk: z
+      .object({
+        enabled: z.boolean().default(false),
+        tiers: bulkTiersSchema.default([]).meta({ description: 'e.g. 10 or more: 5% off; 50 or more: 10% off' }),
+        onSale: z.boolean().default(true).meta({ description: 'Also on items already on sale' }),
+      })
+      .default({ enabled: false, tiers: [], onSale: true }),
   })
   .meta({ id: 'CheckoutSettings' });
 
@@ -210,6 +219,7 @@ export const checkoutSettingsSchema = z
       deliveryFee: z.number().nullable(),
       terms: text,
     }),
+    bulk: z.object({ enabled: z.boolean(), tiers: z.array(z.object({ minQuantity: z.number(), percent: z.number() })), onSale: z.boolean() }),
   })
   .meta({ id: 'CheckoutSettingsView' });
 

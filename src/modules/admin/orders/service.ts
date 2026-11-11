@@ -1,3 +1,5 @@
+import { applyBulk, type BulkRules } from '../../../lib/bulk.ts';
+import type { OrderType } from '../../../db/schema/orders.ts';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../../db/client.ts';
 import {
@@ -62,6 +64,7 @@ export async function loadVariants(tx: Tx | typeof db, ids: number[], locationId
       weightGrams: productVariants.weightGrams,
       trackStock: productVariants.trackStock,
       allowBackorder: productVariants.allowBackorder,
+      bulk: products.bulkDiscount,
       // Table names spelled out, so the subqueries can never pick up the wrong "id".
       imageId: sql<number | null>`coalesce("product_variants"."image_id", (
         select pi.media_id from product_images pi
@@ -87,6 +90,71 @@ export function retailPrice(v: Pick<VariantRow, 'price' | 'salePrice' | 'saleSta
   return onSale ? v.salePrice! : v.price;
 }
 
+export interface OrderLineIn {
+  variantId: number;
+  quantity: number;
+  unitPrice?: number;
+  bulk?: boolean;
+}
+
+/** The same product twice becomes one line (the first line's price is kept). `index`: where it was in the form. */
+export function mergeLines(items: OrderLineIn[]) {
+  const lines: (OrderLineIn & { index: number })[] = [];
+  items.forEach((item, index) => {
+    const same = lines.find((l) => l.variantId === item.variantId);
+    if (same) same.quantity += item.quantity;
+    else lines.push({ ...item, index });
+  });
+  return lines;
+}
+
+/**
+ * The money of each line: the product's price today (or the price staff typed), then bulk discounts
+ * (retail only; lines with a typed price only when `bulk` says so). Used to save an order and to show
+ * its prices in the order form, so both always agree. Every line's variant must be in `variants`.
+ */
+export function priceLines(type: OrderType, lines: (OrderLineIn & { index: number })[], variants: Map<number, VariantRow>, bulkRules: BulkRules, now = new Date()) {
+  const items = lines.map((line, position) => {
+    const v = variants.get(line.variantId)!;
+    const listPrice = type === 'wholesale' ? (v.wholesalePrice ?? retailPrice(v, now)) : retailPrice(v, now);
+    const unitPrice = round(line.unitPrice ?? listPrice);
+    return {
+      variant: v,
+      position,
+      index: line.index,
+      quantity: line.quantity,
+      regularPrice: v.price,
+      /** Before any bulk discount. */
+      basePrice: unitPrice,
+      unitPrice,
+      lineTotal: round(unitPrice * line.quantity),
+      weightGrams: v.weightGrams,
+      bulkOk: line.bulk ?? line.unitPrice === undefined,
+      bulkPercent: null as number | null,
+      bulkDiscount: 0,
+      bulkNext: null as { more: number; percent: number } | null,
+    };
+  });
+  if (type !== 'retail') return items;
+  // Only the lines that may have it count towards the steps.
+  const eligible = items.filter((i) => i.bulkOk);
+  const out = applyBulk(
+    eligible.map((i) => ({ productId: i.variant.productId, quantity: i.quantity, price: i.basePrice, onSale: i.basePrice < i.variant.price })),
+    bulkRules,
+    new Map(eligible.map((i) => [i.variant.productId, i.variant.bulk])),
+  );
+  eligible.forEach((item, k) => {
+    const b = out[k]!;
+    item.bulkNext = b.next;
+    if (!b.percent) return;
+    item.unitPrice = b.unitPrice;
+    item.lineTotal = b.lineTotal;
+    item.bulkPercent = b.percent;
+    item.bulkDiscount = b.discount;
+  });
+  return items;
+}
+
 /**
  * Works out the order from what staff entered: prices, stock, weight, delivery and totals.
  * `heldNow` is the stock this order already holds per variant (when editing), which counts as available.
@@ -99,17 +167,9 @@ async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = ne
     throw badRequest('Choose an area in this district', { areaId: 'Choose an area in this district' });
   }
 
-  // The same product twice becomes one line.
-  const lines: { variantId: number; quantity: number; unitPrice?: number; index: number }[] = [];
-  input.items.forEach((item, index) => {
-    const same = lines.find((l) => l.variantId === item.variantId);
-    if (same) same.quantity += item.quantity;
-    else lines.push({ ...item, index });
-  });
-
+  const lines = mergeLines(input.items);
   const variants = new Map((await loadVariants(tx, lines.map((l) => l.variantId), locationId)).map((v) => [v.variantId, v]));
-  const now = new Date();
-  const items = lines.map((line, position) => {
+  for (const line of lines) {
     const v = variants.get(line.variantId);
     if (!v) throw badRequest('A product in the order no longer exists', { [`items.${line.index}.variantId`]: 'This product no longer exists' });
     if (v.trackStock && !v.allowBackorder) {
@@ -119,26 +179,16 @@ async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = ne
         throw badRequest(`${v.name}: ${message.toLowerCase()}`, { [`items.${line.index}.quantity`]: message });
       }
     }
-    const listPrice = input.type === 'wholesale' ? (v.wholesalePrice ?? retailPrice(v, now)) : retailPrice(v, now);
-    const unitPrice = round(line.unitPrice ?? listPrice);
-    return {
-      variant: v,
-      position,
-      quantity: line.quantity,
-      regularPrice: v.price,
-      unitPrice,
-      lineTotal: round(unitPrice * line.quantity),
-      weightGrams: v.weightGrams,
-    };
-  });
+  }
+  const shop = await getSettings('checkout');
+  const items = priceLines(input.type, lines, variants, shop.bulk);
 
   const subtotal = round(items.reduce((sum, i) => sum + i.lineTotal, 0));
   if (input.discount > subtotal) throw badRequest('The discount is bigger than the order', { discount: 'More than the order amount' });
   const weightGrams = items.reduce((sum, i) => sum + (i.weightGrams ?? 0) * i.quantity, 0);
 
-  const [zones, shop, [customer]] = await Promise.all([
+  const [zones, [customer]] = await Promise.all([
     listZones(),
-    getSettings('checkout'),
     tx.select().from(customers).where(eq(customers.phone, input.customer.phone)),
   ]);
   // A business with its own terms (advance, delivery) gets them on its wholesale orders.
@@ -179,6 +229,7 @@ async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = ne
       weightGrams,
       subtotal,
       discount: input.discount,
+      bulkDiscount: round(items.reduce((sum, i) => sum + i.bulkDiscount, 0)),
       deliveryFee,
       total,
       advanceRequired,
@@ -235,6 +286,8 @@ const itemRows = (orderId: number, built: Awaited<ReturnType<typeof build>>) =>
     unitPrice: i.unitPrice,
     quantity: i.quantity,
     lineTotal: i.lineTotal,
+    bulkPercent: i.bulkPercent,
+    bulkDiscount: i.bulkDiscount,
     weightGrams: i.weightGrams,
     stockTaken: i.variant.trackStock ? i.quantity : 0,
     position: i.position,

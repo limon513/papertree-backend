@@ -119,10 +119,12 @@ export async function orderView(where: SQL) {
       quantity: i.quantity,
       unitPrice: i.unitPrice,
       lineTotal: i.lineTotal,
+      bulkPercent: i.bulkPercent,
       image: i.imageId ? (images.get(i.imageId) ?? null) : null,
     })),
     subtotal: o.subtotal,
     discount: o.discount,
+    bulkDiscount: o.bulkDiscount,
     deliveryFee: o.deliveryFee,
     total: o.total,
   };

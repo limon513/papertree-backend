@@ -58,6 +58,8 @@ export const orders = pgTable(
 
     subtotal: money('subtotal').notNull(),
     discount: money('discount').notNull().default(0),
+    /** Saved by bulk discounts (already taken off the item lines and the subtotal). */
+    bulkDiscount: money('bulk_discount').notNull().default(0),
     deliveryFee: money('delivery_fee').notNull(),
     total: money('total').notNull(),
     /** Sum of the payments (refunds are negative). */
@@ -106,9 +108,14 @@ export const orderItems = pgTable(
     imageId: ref('image_id').references(() => media.id, { onDelete: 'set null' }),
     /** The normal price at the time, to show the saving. */
     regularPrice: money('regular_price').notNull(),
+    /** Per piece, after any bulk discount. */
     unitPrice: money('unit_price').notNull(),
     quantity: integer('quantity').notNull(),
+    /** After any bulk discount. */
     lineTotal: money('line_total').notNull(),
+    /** Bulk discount on this line: the percent, and the taka it took off (0 when none). */
+    bulkPercent: numeric('bulk_percent', { precision: 5, scale: 2, mode: 'number' }),
+    bulkDiscount: money('bulk_discount').notNull().default(0),
     weightGrams: integer('weight_grams'),
     /** Units taken from stock for this line (0 for products that do not track stock). */
     stockTaken: integer('stock_taken').notNull().default(0),

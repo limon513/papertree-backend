@@ -18,6 +18,7 @@ import {
   orderBody,
   orderListQuery,
   paymentBody,
+  priceBody,
   STATUS_FLOW,
   statusBody,
   variantSearchQuery,
@@ -29,6 +30,8 @@ import {
   defaultLocationId,
   EDITABLE,
   loadVariants,
+  mergeLines,
+  priceLines,
   retailPrice,
   setCourier,
   setStatus,
@@ -159,6 +162,33 @@ ordersRouter.post('/delivery-quote', async (req, res) => {
   if (!DISTRICTS.has(input.districtId)) throw badRequest('Choose a district', { districtId: 'Choose a district' });
   const [zones, checkout] = await Promise.all([listZones(), getSettings('checkout')]);
   res.json(quote(zones, checkout, input));
+});
+
+/**
+ * The order form's prices before saving, worked out exactly as when the order is saved (bulk
+ * discounts included), so staff tell the customer the right total. Stock is not checked here.
+ */
+ordersRouter.post('/price', async (req, res) => {
+  const input = priceBody.parse(req.body);
+  const lines = mergeLines(input.items);
+  const variants = new Map((await loadVariants(db, lines.map((l) => l.variantId), await defaultLocationId())).map((v) => [v.variantId, v]));
+  const { bulk } = await getSettings('checkout');
+  const items = priceLines(input.type, lines.filter((l) => variants.has(l.variantId)), variants, bulk);
+  const cents = (n: number) => Math.round(n * 100) / 100;
+  res.json({
+    lines: items.map((i) => ({
+      variantId: i.variant.variantId,
+      quantity: i.quantity,
+      basePrice: i.basePrice,
+      unitPrice: i.unitPrice,
+      lineTotal: i.lineTotal,
+      bulkPercent: i.bulkPercent,
+      bulkDiscount: i.bulkDiscount,
+      bulkNext: i.bulkNext,
+    })),
+    subtotal: cents(items.reduce((s, i) => s + i.lineTotal, 0)),
+    bulkDiscount: cents(items.reduce((s, i) => s + i.bulkDiscount, 0)),
+  });
 });
 
 /** The customer with this phone number, their saved addresses and terms, to fill in a new order. */

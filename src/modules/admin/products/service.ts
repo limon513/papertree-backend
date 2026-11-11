@@ -303,6 +303,7 @@ export async function saveProduct(input: ProductInput, adminUserId: number | nul
     specs: input.specs,
     seoTitle: input.seoTitle,
     seoDescription: input.seoDescription,
+    bulkDiscount: input.bulkDiscount,
   };
 
   return db.transaction(async (tx) => {
@@ -419,6 +420,7 @@ export async function duplicateProduct(id: number, adminUserId: number | null) {
       specs: p.specs,
       seoTitle: p.seoTitle,
       seoDescription: p.seoDescription,
+      bulkDiscount: p.bulkDiscount,
       variants: p.variants.map((v) => ({
         option1: v.option1,
         option2: v.option2,

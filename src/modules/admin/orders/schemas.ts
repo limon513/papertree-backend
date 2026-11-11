@@ -25,7 +25,20 @@ const itemInput = z.object({
     .max(99_999, { error: 'Too many' }),
   /** A different price for this order (e.g. a phone deal). Leave out to use the product price. */
   unitPrice: money('price').optional(),
+  /**
+   * Bulk discount on top of this line's price (retail orders). Default: yes for the product price, no for a
+   * typed price. Editing an order sends its agreed price with bulk: true, so the discount follows the quantity.
+   */
+  bulk: z.boolean().optional(),
 });
+
+/** Prices for the order form, before saving: the same sums the order will have. */
+export const priceBody = z
+  .object({
+    type: z.enum(['retail', 'wholesale']).default('retail'),
+    items: z.array(itemInput).max(100, { error: 'At most 100 lines' }),
+  })
+  .meta({ id: 'OrderPriceBody' });
 
 export const orderBody = z
   .object({
