@@ -13,7 +13,9 @@ import { getSettings } from '../../admin/settings/service.ts';
 import { imagesById } from '../catalog.ts';
 import { orderView } from '../orders.ts';
 import { googleTicket, readGoogleTicket, verifyGoogleToken, type GoogleUser } from './google.ts';
-import { codeBody, googleBody, verifyBody } from './schemas.ts';
+import { addressBody, codeBody, googleBody, profileBody, verifyBody } from './schemas.ts';
+import { addAddress, deleteAddress, makeDefaultAddress, updateAddress } from '../../admin/customers/service.ts';
+import { parseId } from '../../../lib/ids.ts';
 import { currentCustomer, customerView, signIn, signOut } from './session.ts';
 
 /** Website sign-in (phone code or Google) and the shopper's own account. Mounted at /v1/store. */
@@ -166,6 +168,12 @@ accountRouter.post('/auth/logout', async (req, res) => {
   res.json({ ok: true });
 });
 
+/** Signs out every phone and computer signed in to this account (e.g. a lost phone). */
+accountRouter.post('/auth/logout-all', async (req, res) => {
+  await signOut(req, res, true);
+  res.json({ ok: true });
+});
+
 // ---- The shopper's account ----
 
 async function viewOf(customerId: number) {
@@ -236,4 +244,41 @@ accountRouter.get('/me/orders/:number', async (req, res) => {
   const view = await orderView(and(eq(orders.number, number), eq(orders.customerId, c.id))!);
   if (!view) throw notFound('Order not found');
   res.set('cache-control', 'no-store').json(view);
+});
+
+/** Change their name or email. (A new phone number needs a code, so that waits for SMS.) */
+accountRouter.patch('/me', async (req, res) => {
+  const c = await signedIn(req);
+  const input = profileBody.parse(req.body);
+  await db.update(customers).set(input).where(eq(customers.id, c.id));
+  res.json({ customer: await viewOf(c.id) });
+});
+
+// ---- Saved addresses: each change answers with the updated account ----
+
+/** Up to this many saved addresses per shopper. */
+const MAX_ADDRESSES = 20;
+
+accountRouter.post('/me/addresses', async (req, res) => {
+  const c = await signedIn(req);
+  await addAddress(c.id, addressBody.parse(req.body), MAX_ADDRESSES);
+  res.status(201).json({ customer: await viewOf(c.id) });
+});
+
+accountRouter.put('/me/addresses/:id', async (req, res) => {
+  const c = await signedIn(req);
+  await updateAddress(c.id, parseId(req.params.id), addressBody.parse(req.body));
+  res.json({ customer: await viewOf(c.id) });
+});
+
+accountRouter.post('/me/addresses/:id/default', async (req, res) => {
+  const c = await signedIn(req);
+  await makeDefaultAddress(c.id, parseId(req.params.id));
+  res.json({ customer: await viewOf(c.id) });
+});
+
+accountRouter.delete('/me/addresses/:id', async (req, res) => {
+  const c = await signedIn(req);
+  await deleteAddress(c.id, parseId(req.params.id));
+  res.json({ customer: await viewOf(c.id) });
 });

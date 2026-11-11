@@ -6,9 +6,8 @@ import { audit } from '../../../lib/audit.ts';
 import { badRequest, conflict, notFound } from '../../../lib/errors.ts';
 import { parseId } from '../../../lib/ids.ts';
 import { normalizePhone } from '../../../lib/phone.ts';
-import { AREAS, DISTRICTS } from '../settings/service.ts';
-import { addressBody, blockBody, businessBody, customerBody, customerListQuery, type AddressInput } from './schemas.ts';
-import { addressView, setDefaultAddress } from './service.ts';
+import { addressBody, blockBody, businessBody, customerBody, customerListQuery } from './schemas.ts';
+import { addAddress, addressView, deleteAddress, updateAddress } from './service.ts';
 
 /** Mounted behind requireAdmin + requireModule('customers'). */
 export const customersRouter = Router();
@@ -234,69 +233,21 @@ customersRouter.put('/:id/block', async (req, res) => {
 
 // ---- Addresses ----
 
-function checkPlace(input: AddressInput) {
-  if (!DISTRICTS.has(input.districtId)) throw badRequest('Choose a district', { districtId: 'Choose a district' });
-  if (input.areaId && AREAS.get(input.areaId)?.districtId !== input.districtId) {
-    throw badRequest('Choose an area in this district', { areaId: 'Choose an area in this district' });
-  }
-}
-
-async function getAddress(customerId: number, addressId: number) {
-  const [row] = await db
-    .select()
-    .from(customerAddresses)
-    .where(and(eq(customerAddresses.id, addressId), eq(customerAddresses.customerId, customerId)));
-  if (!row) throw notFound('Address not found');
-  return row;
-}
-
 customersRouter.post('/:id/addresses', async (req, res) => {
   const id = parseId(req.params.id);
   await getCustomer(id);
-  const input = addressBody.parse(req.body);
-  checkPlace(input);
-  await db.transaction(async (tx) => {
-    const [{ n } = { n: 0 }] = await tx.select({ n: count() }).from(customerAddresses).where(eq(customerAddresses.customerId, id));
-    const [row] = await tx
-      .insert(customerAddresses)
-      .values({ ...input, customerId: id, isDefault: false })
-      .returning({ id: customerAddresses.id });
-    if (input.isDefault || n === 0) await setDefaultAddress(tx, id, row!.id);
-  });
+  await addAddress(id, addressBody.parse(req.body));
   res.status(201).json(await customerView(id));
 });
 
 customersRouter.put('/:id/addresses/:addressId', async (req, res) => {
   const id = parseId(req.params.id);
-  const addressId = parseId(req.params.addressId);
-  const before = await getAddress(id, addressId);
-  const input = addressBody.parse(req.body);
-  checkPlace(input);
-  await db.transaction(async (tx) => {
-    await tx
-      .update(customerAddresses)
-      .set({ ...input, isDefault: before.isDefault })
-      .where(eq(customerAddresses.id, addressId));
-    if (input.isDefault && !before.isDefault) await setDefaultAddress(tx, id, addressId);
-  });
+  await updateAddress(id, parseId(req.params.addressId), addressBody.parse(req.body));
   res.json(await customerView(id));
 });
 
 customersRouter.delete('/:id/addresses/:addressId', async (req, res) => {
   const id = parseId(req.params.id);
-  const address = await getAddress(parseId(req.params.id), parseId(req.params.addressId));
-  await db.transaction(async (tx) => {
-    await tx.delete(customerAddresses).where(eq(customerAddresses.id, address.id));
-    // Keep a default when other addresses are left.
-    if (address.isDefault) {
-      const [next] = await tx
-        .select({ id: customerAddresses.id })
-        .from(customerAddresses)
-        .where(eq(customerAddresses.customerId, id))
-        .orderBy(desc(customerAddresses.updatedAt))
-        .limit(1);
-      if (next) await setDefaultAddress(tx, id, next.id);
-    }
-  });
+  await deleteAddress(id, parseId(req.params.addressId));
   res.json(await customerView(id));
 });
