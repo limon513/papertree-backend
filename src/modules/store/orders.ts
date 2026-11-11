@@ -5,6 +5,8 @@ import { asc, eq } from 'drizzle-orm';
 import { db } from '../../db/client.ts';
 import { deliveryZones, orderItems, orders } from '../../db/schema/index.ts';
 import { notFound } from '../../lib/errors.ts';
+import { QUEUES, sendJob } from '../../jobs/boss.ts';
+import { logger } from '../../lib/logger.ts';
 import { createOrder } from '../admin/orders/service.ts';
 import { imagesById } from './catalog.ts';
 import { checkoutBody } from './schemas.ts';
@@ -66,6 +68,8 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
       { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url') },
     );
     res.status(201).json(placed(order));
+    // Emails go out in the background: the shopper never waits for them, and a failure never undoes the order.
+    sendJob(QUEUES.orderPlaced, { orderId: order.id }).catch((err) => logger.error({ err, order: order.number }, 'Could not queue the order emails'));
   } catch (err) {
     // Two copies of the same attempt at the same moment: one won, return it.
     const winner = await byRequest(requestId);

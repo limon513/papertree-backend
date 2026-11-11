@@ -13,6 +13,8 @@ boss.on('error', (err) => logger.error({ err }, 'Background job error'));
 export const QUEUES = {
   /** Data: { jobId } of an import_jobs row. */
   productImport: 'product-import',
+  /** Data: { orderId }. Emails after a website order (customer confirmation, shop alert). */
+  orderPlaced: 'order-placed',
 } as const;
 
 let started: Promise<PgBoss> | null = null;
@@ -24,6 +26,8 @@ export function startBoss() {
     // An import can take a while (images are downloaded); allow up to 3 hours.
     // After a crash it is retried and continues where it stopped.
     await boss.createQueue(QUEUES.productImport, { expireInSeconds: 3 * 3600, retryLimit: 2, retryDelay: 30 });
+    // Emails: retried a few times if something goes wrong (each email is still sent only once).
+    await boss.createQueue(QUEUES.orderPlaced, { expireInSeconds: 300, retryLimit: 3, retryDelay: 60 });
     return boss;
   })();
   return started;

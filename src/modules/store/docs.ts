@@ -103,7 +103,8 @@ export const storeDocs: ZodOpenApiPathsObject = {
         '409 PRICE_CHANGED: the total is no longer expectedTotal (prices changed); check the cart and send again. ' +
         '400 with fields items.N.quantity: not enough stock (someone may have just bought the last ones). ' +
         'The same requestId again returns the order already placed (200), so retries never make two orders. ' +
-        'At most 20 orders per connection per hour. Returns the order number and the token for GET /v1/store/orders/{token}.',
+        'At most 20 orders per connection per hour. Returns the order number and the token for GET /v1/store/orders/{token}. ' +
+        'Then, in the background: a confirmation email to the customer (when they gave an email) and an alert to the shop (Integrations, Email, "New-order alerts to").',
       requestBody: jsonBody(checkoutBody),
       responses: {
         '201': json(z.object({ number: z.number(), token: z.string().nullable(), total: z.number() }).meta({ id: 'StoreOrderPlaced' }), 'Placed'),
