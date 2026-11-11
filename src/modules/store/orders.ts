@@ -112,6 +112,8 @@ export async function orderView(where: SQL) {
     deliveryTime: order.deliveryTime,
     paymentMethod: o.paymentMethod,
     items: items.map((i) => ({
+      // For "Order again" (null when the product was deleted).
+      variantId: i.variantId,
       name: i.name,
       variantLabel: i.variantLabel,
       quantity: i.quantity,

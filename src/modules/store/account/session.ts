@@ -1,9 +1,10 @@
 import type { Request, Response } from 'express';
-import { and, desc, eq, gt } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import { isProduction } from '../../../config/env.ts';
 import { db } from '../../../db/client.ts';
-import { customerAddresses, customers, customerSessions } from '../../../db/schema/index.ts';
+import { customers, customerSessions } from '../../../db/schema/index.ts';
 import { randomToken, sha256 } from '../../../lib/crypto.ts';
+import { addressesOf, addressView } from '../../admin/customers/service.ts';
 
 /**
  * Website sign-in sessions, like the admin's: a random token in an httpOnly cookie, only its hash in
@@ -32,9 +33,15 @@ export async function signIn(res: Response, req: Request, customerId: number, vi
   res.cookie(CUSTOMER_COOKIE, token, { httpOnly: true, secure: isProduction, sameSite: 'lax', path: '/', expires: expiresAt });
 }
 
-export async function signOut(req: Request, res: Response) {
+/** Signs out this browser, or (`everywhere`) every device signed in to this account. */
+export async function signOut(req: Request, res: Response, everywhere = false) {
   const token = req.cookies?.[CUSTOMER_COOKIE] as string | undefined;
-  if (token) await db.delete(customerSessions).where(eq(customerSessions.id, sha256(token)));
+  if (token && everywhere) {
+    const [s] = await db.select({ customerId: customerSessions.customerId }).from(customerSessions).where(eq(customerSessions.id, sha256(token)));
+    if (s) await db.delete(customerSessions).where(eq(customerSessions.customerId, s.customerId));
+  } else if (token) {
+    await db.delete(customerSessions).where(eq(customerSessions.id, sha256(token)));
+  }
   res.clearCookie(CUSTOMER_COOKIE, { httpOnly: true, secure: isProduction, sameSite: 'lax', path: '/' });
 }
 
@@ -59,13 +66,9 @@ export async function currentCustomer(req: Request) {
 
 /** What the website knows about the signed-in customer. */
 export async function customerView(c: typeof customers.$inferSelect) {
-  // The default address, else the latest used.
-  const [best] = await db
-    .select()
-    .from(customerAddresses)
-    .where(eq(customerAddresses.customerId, c.id))
-    .orderBy(desc(customerAddresses.isDefault), desc(customerAddresses.updatedAt))
-    .limit(1);
+  // The default first, then the latest used.
+  const addresses = (await addressesOf(c.id)).map(addressView);
+  const best = addresses[0];
   return {
     id: c.id,
     name: c.name,
@@ -74,6 +77,8 @@ export async function customerView(c: typeof customers.$inferSelect) {
     avatarUrl: c.avatarUrl,
     google: !!c.googleId,
     business: c.type === 'business' && c.businessStatus === 'approved',
+    /** The one checkout fills in. */
     address: best ? { districtId: best.districtId, areaId: best.areaId, address: best.address } : null,
+    addresses,
   };
 }

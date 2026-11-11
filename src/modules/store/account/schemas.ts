@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { bdPhone } from '../../../lib/phone.ts';
-import { nameSchema } from '../../admin/schemas.ts';
+import { emailSchema, nameSchema } from '../../admin/schemas.ts';
+export { addressBody } from '../../admin/customers/schemas.ts';
 
 export const codeBody = z.object({ phone: bdPhone }).meta({ id: 'StoreSignInCodeBody' });
 
@@ -18,3 +19,10 @@ export const verifyBody = z
 export const googleBody = z
   .object({ idToken: z.string().min(20).max(4000).meta({ description: 'The Firebase ID token from signing in with Google' }) })
   .meta({ id: 'StoreGoogleSignInBody' });
+
+export const profileBody = z
+  .object({
+    name: nameSchema,
+    email: emailSchema.nullable().or(z.literal('').transform(() => null)).default(null).meta({ description: 'For order emails. Empty removes it.' }),
+  })
+  .meta({ id: 'StoreProfileBody' });

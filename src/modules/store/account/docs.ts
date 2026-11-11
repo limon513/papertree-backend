@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ZodOpenApiPathsObject } from 'zod-openapi';
 import { errors, json, jsonBody } from '../../../docs/common.ts';
-import { codeBody, googleBody, verifyBody } from './schemas.ts';
+import { addressBody, codeBody, googleBody, profileBody, verifyBody } from './schemas.ts';
 
 const tags = ['Store: sign-in and account'];
 const open = z.object({}).catchall(z.unknown());
@@ -44,11 +44,21 @@ export const accountDocs: ZodOpenApiPathsObject = {
   '/v1/store/auth/logout': {
     post: { tags, summary: 'Sign out', responses: { '200': json(z.object({ ok: z.boolean() })) } },
   },
+  '/v1/store/auth/logout-all': {
+    post: { tags, summary: 'Sign out on every device', description: 'Ends every sign-in of this account (a lost phone, a shared computer).', responses: { '200': json(z.object({ ok: z.boolean() })) } },
+  },
   '/v1/store/me': {
+    patch: {
+      tags,
+      summary: 'Change my name or email',
+      description: `${signedIn} The phone number cannot be changed here yet (it needs a code by SMS).`,
+      requestBody: jsonBody(profileBody),
+      responses: { '200': json(open.meta({ id: 'StoreMeUpdated' })), ...errors(400, 401) },
+    },
     get: {
       tags,
       summary: 'Who is signed in',
-      description: '{ customer } with name, phone, email, Google photo address, and the address to fill in at checkout; { customer: null } when signed out.',
+      description: '{ customer } with name, phone, email, Google photo address, saved addresses (default first) and the address to fill in at checkout; { customer: null } when signed out.',
       responses: { '200': json(open.meta({ id: 'StoreMe' })) },
     },
   },
@@ -67,6 +77,41 @@ export const accountDocs: ZodOpenApiPathsObject = {
       description: signedIn,
       requestParams: { path: z.object({ number: z.coerce.number().int() }) },
       responses: { '200': json(open.meta({ id: 'StoreMyOrder' })), ...errors(401, 404) },
+    },
+  },
+  '/v1/store/me/addresses': {
+    post: {
+      tags,
+      summary: 'Save an address',
+      description: `${signedIn} Up to 20. The first one becomes the default. Answers with { customer } (all addresses).`,
+      requestBody: jsonBody(addressBody),
+      responses: { '201': json(open), ...errors(400, 401) },
+    },
+  },
+  '/v1/store/me/addresses/{id}': {
+    put: {
+      tags,
+      summary: 'Change a saved address',
+      description: signedIn,
+      requestParams: { path: z.object({ id: z.coerce.number().int() }) },
+      requestBody: jsonBody(addressBody),
+      responses: { '200': json(open), ...errors(400, 401, 404) },
+    },
+    delete: {
+      tags,
+      summary: 'Remove a saved address',
+      description: `${signedIn} When it was the default, the latest used one becomes the default.`,
+      requestParams: { path: z.object({ id: z.coerce.number().int() }) },
+      responses: { '200': json(open), ...errors(401, 404) },
+    },
+  },
+  '/v1/store/me/addresses/{id}/default': {
+    post: {
+      tags,
+      summary: 'Make an address the default',
+      description: signedIn,
+      requestParams: { path: z.object({ id: z.coerce.number().int() }) },
+      responses: { '200': json(open), ...errors(401, 404) },
     },
   },
 };
