@@ -10,8 +10,10 @@ import { activeCategories, cards, CURRENT_PRICE, facets, imagesById, inCategorie
 import { cartBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
 import { nameMatches, planSearch, productBySku, searchRank, searchWhere } from './search.ts';
 import { storeOrdersRouter } from './orders.ts';
+import { accountRouter } from './account/routes.ts';
+import { getIntegration } from '../admin/integrations/service.ts';
 
-/** Public API for the website. Read-only, no sign-in. Mounted at /v1/store. */
+/** Public API for the website. Mounted at /v1/store. Shoppers may sign in (account routes). */
 export const storeRouter = Router();
 
 /** Browsers and the CDN may keep answers for a short while; the website revalidates on its own schedule. */
@@ -27,11 +29,13 @@ const and_ = (parts: (SQL | undefined)[]) => {
 // ---- Menus, footer, store details ----
 
 storeRouter.get('/catalog', async (_req, res) => {
-  const [cats, brandRows, store] = await Promise.all([
+  const [cats, brandRows, store, google] = await Promise.all([
     activeCategories(),
     db.select().from(brands).where(eq(brands.isActive, true)).orderBy(sql`${brands.isFeatured} desc`, asc(sql`lower(${brands.name})`)),
     getSettings('store'),
+    getIntegration('google'),
   ]);
+  const g = google.settings;
   const images = await imagesById([...cats.all.map((c) => c.imageId), ...brandRows.map((b) => b.imageId), store.logoImageId]);
   const node = (c: (typeof cats.all)[number]): unknown => ({
     id: c.id,
@@ -54,6 +58,8 @@ storeRouter.get('/catalog', async (_req, res) => {
       logo: store.logoImageId ? (images.get(store.logoImageId) ?? null) : null,
       social: { facebook: store.facebook, instagram: store.instagram, youtube: store.youtube, tiktok: store.tiktok },
     },
+    // Sign in with Google: Firebase's web settings (public by design). null when switched off.
+    google: g.enabled && g.apiKey && g.authDomain && g.projectId && g.appId ? { apiKey: g.apiKey, authDomain: g.authDomain, projectId: g.projectId, appId: g.appId } : null,
     // Empty categories are hidden.
     categories: (cats.children.get(null) ?? []).filter((c) => cats.count(c.id) > 0).map(node),
     brands: brandRows.map((b) => ({
@@ -412,3 +418,4 @@ storeRouter.post('/cart', async (req, res) => {
 // ---- Orders (checkout) ----
 
 storeRouter.use('/orders', storeOrdersRouter);
+storeRouter.use(accountRouter);

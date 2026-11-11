@@ -6,6 +6,7 @@ import { importsDocs } from '../modules/admin/imports/docs.ts';
 import { mediaDocs } from '../modules/admin/media/docs.ts';
 import { customersDocs } from '../modules/admin/customers/docs.ts';
 import { storeDocs } from '../modules/store/docs.ts';
+import { accountDocs } from '../modules/store/account/docs.ts';
 import { ordersDocs } from '../modules/admin/orders/docs.ts';
 import { productsDocs } from '../modules/admin/products/docs.ts';
 import { rolesDocs } from '../modules/admin/roles/docs.ts';
@@ -55,6 +56,7 @@ export function buildOpenApiDocument() {
       ...contentDocs,
       ...integrationsDocs,
       ...storeDocs,
+      ...accountDocs,
     },
   });
 }

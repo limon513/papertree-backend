@@ -99,6 +99,27 @@
       "when": 1794147064107,
       "tag": "0013_integrations",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794413486366,
+      "tag": "0014_customer_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794413511844,
+      "tag": "0015_customer_avatar",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794413757860,
+      "tag": "0016_customer_session_via",
+      "breakpoints": true
     }
   ]
 }

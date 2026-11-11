@@ -47,10 +47,14 @@ export async function rememberAddress(
   place: { districtId: string; areaId: string | null; address: string },
 ) {
   const saved = await tx.select().from(customerAddresses).where(eq(customerAddresses.customerId, customerId));
-  const known = saved.some(
+  const known = saved.find(
     (a) => a.districtId === place.districtId && (a.areaId ?? null) === (place.areaId ?? null) && sameText(a.address, place.address),
   );
-  if (known) return;
+  // Used again: it becomes the latest (the website fills in the latest when there is no default).
+  if (known) {
+    await tx.update(customerAddresses).set({ updatedAt: new Date() }).where(eq(customerAddresses.id, known.id));
+    return;
+  }
   await tx.insert(customerAddresses).values({ customerId, ...place, isDefault: saved.length === 0 });
 }
 
