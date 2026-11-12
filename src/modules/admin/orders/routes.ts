@@ -8,6 +8,7 @@ import { parseId } from '../../../lib/ids.ts';
 import { normalizePhone } from '../../../lib/phone.ts';
 import { currentAdmin } from '../../../middleware/admin-auth.ts';
 import { addressView, isApprovedBusiness } from '../customers/service.ts';
+import { cleanCode, CouponError } from '../coupons/service.ts';
 import { withImages } from '../media/view.ts';
 import { quoteBody } from '../settings/schemas.ts';
 import { DISTRICTS, getSettings, listZones, quote } from '../settings/service.ts';
@@ -31,6 +32,7 @@ import {
   EDITABLE,
   loadVariants,
   mergeLines,
+  orderCoupon,
   priceLines,
   retailPrice,
   setCourier,
@@ -175,7 +177,28 @@ ordersRouter.post('/price', async (req, res) => {
   const { bulk } = await getSettings('checkout');
   const items = priceLines(input.type, lines.filter((l) => variants.has(l.variantId)), variants, bulk);
   const cents = (n: number) => Math.round(n * 100) / 100;
+  // The coupon, as saving would work it out (an order's own coupon is kept; a new one is checked for this phone).
+  let coupon: { code: string; ok: boolean; message: string | null; itemsOff: number; deliveryOff: number; kept: boolean } | null = null;
+  if (input.couponCode?.trim()) {
+    const [existing] = input.orderId
+      ? await db.select({ id: orders.id, couponId: orders.couponId, couponCode: orders.couponCode, customerId: orders.customerId }).from(orders).where(eq(orders.id, input.orderId))
+      : [];
+    const phone = input.phone ? normalizePhone(input.phone) : null;
+    const [customer] = phone ? await db.select({ id: customers.id }).from(customers).where(eq(customers.phone, phone)) : [];
+    try {
+      const got = await db.transaction((tx) =>
+        orderCoupon(tx, { code: input.couponCode, type: input.type, phone, customerId: existing?.customerId ?? customer?.id ?? null, existing: existing ?? null, preview: true }, items, input.deliveryFee),
+      );
+      coupon = got
+        ? { code: got.code, ok: true, message: null, itemsOff: got.itemsOff, deliveryOff: got.deliveryOff, kept: !got.isNew }
+        : { code: input.couponCode.trim().toUpperCase(), ok: false, message: existing?.couponCode && existing.couponCode === cleanCode(input.couponCode) ? 'The order no longer qualifies: the coupon comes off when you save.' : 'Nothing to take off (for example, delivery is already free).', itemsOff: 0, deliveryOff: 0, kept: false };
+    } catch (err) {
+      if (!(err instanceof CouponError)) throw err;
+      coupon = { code: input.couponCode.trim().toUpperCase(), ok: false, message: err.message, itemsOff: 0, deliveryOff: 0, kept: false };
+    }
+  }
   res.json({
+    coupon,
     lines: items.map((i) => ({
       variantId: i.variant.variantId,
       quantity: i.quantity,

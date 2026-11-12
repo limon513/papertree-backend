@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, numeric, pgSequence, pgTable, text } from 'drizzle-orm/pg-core';
+import { check, index, integer, numeric, pgSequence, pgTable, text } from 'drizzle-orm/pg-core';
 import { adminUsers } from './admin.ts';
+import { coupons } from './coupons.ts';
 import { customers } from './customers.ts';
 import { media } from './media.ts';
 import { products, productVariants, stockLocations } from './products.ts';
@@ -60,7 +61,14 @@ export const orders = pgTable(
     discount: money('discount').notNull().default(0),
     /** Saved by bulk discounts (already taken off the item lines and the subtotal). */
     bulkDiscount: money('bulk_discount').notNull().default(0),
+    /** The delivery charge before any free-delivery coupon. */
     deliveryFee: money('delivery_fee').notNull(),
+    /** The coupon used (code and taka kept even if the coupon changes later). */
+    couponId: ref('coupon_id').references(() => coupons.id, { onDelete: 'set null' }),
+    couponCode: text('coupon_code'),
+    /** What the coupon took off: items, plus the delivery charge for a free-delivery coupon. */
+    couponDiscount: money('coupon_discount').notNull().default(0),
+    /** subtotal − discount − couponDiscount + deliveryFee. */
     total: money('total').notNull(),
     /** Sum of the payments (refunds are negative). */
     paidAmount: money('paid_amount').notNull().default(0),
@@ -88,6 +96,9 @@ export const orders = pgTable(
     index('orders_status_idx').on(t.status, t.createdAt),
     index('orders_phone_idx').on(t.phone),
     index('orders_customer_id_idx').on(t.customerId),
+    index('orders_coupon_id_idx').on(t.couponId).where(sql`${t.couponId} is not null`),
+    // Last line of defence: no code path may save a negative amount.
+    check('orders_money_not_negative', sql`${t.total} >= 0 and ${t.discount} >= 0 and ${t.bulkDiscount} >= 0 and ${t.couponDiscount} >= 0 and ${t.deliveryFee} >= 0`),
   ],
 );
 

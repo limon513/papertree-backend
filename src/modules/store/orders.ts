@@ -7,6 +7,7 @@ import { customers, deliveryZones, orderItems, orders } from '../../db/schema/in
 import { forbidden, notFound } from '../../lib/errors.ts';
 import { QUEUES, sendJob } from '../../jobs/boss.ts';
 import { logger } from '../../lib/logger.ts';
+import { codeGuard, CouponError, tooManyTries } from '../admin/coupons/service.ts';
 import { createOrder } from '../admin/orders/service.ts';
 import { currentCustomer, signIn } from './account/session.ts';
 import { imagesById } from './catalog.ts';
@@ -40,7 +41,7 @@ async function byRequest(requestId: string) {
  * taken from the browser. The customer is found by phone number, or added, and the address saved.
  */
 storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
-  const { website, requestId, expectedTotal, name, phone, email, note, paymentMethod, ...rest } = checkoutBody.parse(req.body);
+  const { website, requestId, expectedTotal, name, phone, email, note, paymentMethod, couponCode, ...rest } = checkoutBody.parse(req.body);
   // The hidden box was filled: a bot. Answer as if placed, so it does not try again.
   if (website) {
     res.status(201).json({ number: 0, token: null, total: 0 });
@@ -56,6 +57,8 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
   const me = await currentCustomer(req);
   const [byPhone] = me ? [] : await db.select({ isBlocked: customers.isBlocked }).from(customers).where(eq(customers.phone, phone));
   if (byPhone?.isBlocked) throw forbidden('We cannot take this order on the website. Please call us to order.');
+  // Too many wrong codes from this connection: codes are not even looked up for a while.
+  if (couponCode && !codeGuard.allowed(req.ip)) throw tooManyTries();
   try {
     const order = await createOrder(
       {
@@ -68,6 +71,7 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
         deliveryFee: null,
         customerNote: note,
         staffNote: null,
+        couponCode: couponCode || null,
       },
       null,
       { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url'), customerId: me?.id },
@@ -79,6 +83,7 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
     // Emails go out in the background: the shopper never waits for them, and a failure never undoes the order.
     sendJob(QUEUES.orderPlaced, { orderId: order.id }).catch((err) => logger.error({ err, order: order.number }, 'Could not queue the order emails'));
   } catch (err) {
+    if (err instanceof CouponError && err.reason === 'unknown') codeGuard.failed(req.ip);
     // Two copies of the same attempt at the same moment: one won, return it.
     const winner = await byRequest(requestId);
     if (winner) {
@@ -125,6 +130,8 @@ export async function orderView(where: SQL) {
     subtotal: o.subtotal,
     discount: o.discount,
     bulkDiscount: o.bulkDiscount,
+    couponCode: o.couponCode,
+    couponDiscount: o.couponDiscount,
     deliveryFee: o.deliveryFee,
     total: o.total,
   };

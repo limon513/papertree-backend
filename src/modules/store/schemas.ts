@@ -51,6 +51,8 @@ export const cartBody = z
     /** Where it goes, for the delivery charge and free-delivery progress. */
     districtId: z.string().nullable().default(null),
     areaId: z.string().nullable().default(null),
+    /** A coupon code to try on this cart. */
+    couponCode: z.string().trim().max(30).nullable().default(null),
   })
   .meta({ id: 'StoreCartBody' });
 
@@ -89,6 +91,8 @@ export const checkoutBody = z
     expectedTotal: z.number().min(0),
     /** A new id per checkout attempt; sending the same one again returns the same order. */
     requestId: z.string().min(8).max(64),
+    /** Only when the cart check said it applies; checked again here. */
+    couponCode: z.string().trim().max(30).nullable().default(null),
     /** Left empty by people; bots fill every box. */
     website: z.string().max(200).optional(),
   })

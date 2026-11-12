@@ -198,6 +198,7 @@ if (!demoOrders!.n) {
         type: 'retail',
         channel: CHANNELS[i % CHANNELS.length]!,
         paymentMethod: 'cod',
+        couponCode: null,
         customer: { name, phone: `017110000${String(i % PEOPLE.length).padStart(2, '0')}`, email: null },
         districtId,
         areaId,

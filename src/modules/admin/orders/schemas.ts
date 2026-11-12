@@ -37,6 +37,11 @@ export const priceBody = z
   .object({
     type: z.enum(['retail', 'wholesale']).default('retail'),
     items: z.array(itemInput).max(100, { error: 'At most 100 lines' }),
+    /** With a coupon: the order's phone (for per-customer rules), the delivery charge (free-delivery coupons) and, when editing, the order. */
+    couponCode: z.string().trim().max(30).nullable().default(null),
+    phone: z.string().trim().max(20).nullable().default(null),
+    deliveryFee: z.number().min(0).nullable().default(null),
+    orderId: z.number().int().positive().nullable().default(null),
   })
   .meta({ id: 'OrderPriceBody' });
 
@@ -63,6 +68,8 @@ export const orderBody = z
     deliveryFee: money('delivery charge').nullable().default(null),
     customerNote: optionalText(1000).default(null),
     staffNote: optionalText(2000).default(null),
+    /** A coupon code (retail only). Checked and worked out on the server. */
+    couponCode: z.string().trim().max(30).nullable().default(null).meta({ example: 'SCHOOL10' }),
     /** Where the stock is taken from. Default: the default stock location. */
     locationId: id.optional(),
   })

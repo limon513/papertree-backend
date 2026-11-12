@@ -1,8 +1,9 @@
 import { applyBulk, type BulkRules } from '../../../lib/bulk.ts';
+import { checkCouponUse, cleanCode, CouponError, couponFor, findCoupon, shortfallMessage } from '../coupons/service.ts';
 import type { OrderType } from '../../../db/schema/orders.ts';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../../db/client.ts';
-import {
+import { coupons,
   customers,
   orderEvents,
   orderItems,
@@ -159,7 +160,48 @@ export function priceLines(type: OrderType, lines: (OrderLineIn & { index: numbe
  * Works out the order from what staff entered: prices, stock, weight, delivery and totals.
  * `heldNow` is the stock this order already holds per variant (when editing), which counts as available.
  */
-async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = new Map<number, number>()) {
+/** Who is ordering, for coupon rules. */
+export interface OrderContext {
+  /** A signed-in shopper (website). */
+  customerId?: number | null;
+  /** The order being edited: its coupon is kept (no new use counted) while the items still qualify. */
+  existing?: { id: number; couponId: number | null; couponCode: string | null; customerId: number | null } | null;
+}
+
+/** The lines as the coupon maths needs them. */
+export const couponInput = (items: ReturnType<typeof priceLines>, now = new Date()) =>
+  items.map((i) => ({ productId: i.variant.productId, lineTotal: i.lineTotal, onSale: retailPrice(i.variant, now) < i.variant.price, bulkPercent: i.bulkPercent }));
+
+/**
+ * The order's coupon: checked (a new code: dates, limits, who; its row locked so use limits stay exact)
+ * and worked out. Throws a CouponError when a new code cannot be used. An order's own coupon, when
+ * edited, is only re-worked out, and comes off if the items no longer qualify.
+ */
+export async function orderCoupon(
+  tx: Tx,
+  args: { code: string | null; type: OrderType; phone: string | null; customerId: number | null; existing?: OrderContext['existing']; preview?: boolean },
+  items: ReturnType<typeof priceLines>,
+  deliveryFee: number | null,
+) {
+  const code = args.code ? cleanCode(args.code) : '';
+  if (!code) return null;
+  if (args.type === 'wholesale') throw new CouponError('wholesale', 'Coupons are for retail orders.');
+  const kept = !!args.existing?.couponId && args.existing.couponCode === code;
+  // A new use locks the coupon row until the order is saved (not for a preview).
+  const c = await findCoupon(tx, code, !kept && !args.preview);
+  if (kept && !c) return null;
+  if (!kept) await checkCouponUse(tx, c, { phone: args.phone, customerId: args.customerId, orderId: args.existing?.id ?? null });
+  const result = await couponFor(tx, c!, couponInput(items), deliveryFee);
+  if (!result.ok) {
+    if (kept) return null;
+    throw new CouponError(result.reason ?? 'no_items', shortfallMessage(result));
+  }
+  // Free delivery when the delivery is free anyway: nothing to use it for.
+  if (result.itemsOff + result.deliveryOff <= 0) return null;
+  return { id: c!.id, code: c!.code, itemsOff: result.itemsOff, deliveryOff: result.deliveryOff, isNew: !kept };
+}
+
+async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = new Map<number, number>(), ctx: OrderContext = {}) {
   const district = DISTRICTS.get(input.districtId);
   if (!district) throw badRequest('Choose a district', { districtId: 'Choose a district' });
   const area = input.areaId ? AREAS.get(input.areaId) : null;
@@ -205,12 +247,24 @@ async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = ne
     throw badRequest('No delivery zone covers this place. Enter the delivery charge.', { deliveryFee: 'Enter the delivery charge' });
   }
 
-  const total = round(subtotal - input.discount + deliveryFee);
+  const coupon = await orderCoupon(
+    tx,
+    { code: input.couponCode, type: input.type, phone: input.customer.phone, customerId: ctx.customerId ?? ctx.existing?.customerId ?? customer?.id ?? null, existing: ctx.existing },
+    items,
+    deliveryFee,
+  );
+  const couponDiscount = coupon ? coupon.itemsOff + coupon.deliveryOff : 0;
+  // Never below zero: the items part of discounts cannot be more than the items.
+  if (input.discount + (coupon?.itemsOff ?? 0) > subtotal) {
+    throw badRequest('The discount and the coupon together are more than the items', { discount: 'Too much with the coupon' });
+  }
+  const total = round(subtotal - input.discount - couponDiscount + deliveryFee);
   // Whole taka, rounded up.
   const advanceRequired = input.type === 'wholesale' ? Math.ceil((total * checkout.wholesale.advancePercent) / 100) : 0;
 
   return {
     items,
+    coupon,
     values: {
       type: input.type,
       channel: input.channel,
@@ -231,6 +285,9 @@ async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = ne
       discount: input.discount,
       bulkDiscount: round(items.reduce((sum, i) => sum + i.bulkDiscount, 0)),
       deliveryFee,
+      couponId: coupon?.id ?? null,
+      couponCode: coupon?.code ?? null,
+      couponDiscount,
       total,
       advanceRequired,
       customerNote: input.customerNote,
@@ -308,7 +365,7 @@ export interface CreateOrderExtras {
 export async function createOrder(input: OrderInput, adminUserId: number | null, extras: CreateOrderExtras = {}) {
   return db.transaction(async (tx) => {
     const locationId = input.locationId ?? (await defaultLocationId(tx));
-    const built = await build(tx, input, locationId);
+    const built = await build(tx, input, locationId, undefined, { customerId: extras.customerId ?? null });
     if (extras.expectedTotal !== undefined && Math.abs(extras.expectedTotal - built.values.total) > 0.009) {
       throw new AppError(409, 'PRICE_CHANGED', `Prices changed: the total is now ${taka(built.values.total)}. Please check your order and place it again.`);
     }
@@ -331,9 +388,15 @@ export async function createOrder(input: OrderInput, adminUserId: number | null,
         throw badRequest(`${v.name}: ${message.toLowerCase()}`, { [`items.${i}.quantity`]: message });
       }
     }
-    await event(tx, order!.id, 'created', `Order placed (${input.channel}), ${taka(built.values.total)}`, adminUserId);
+    if (built.coupon?.isNew) await useCoupon(tx, built.coupon.id);
+    await event(tx, order!.id, 'created', `Order placed (${input.channel}), ${taka(built.values.total)}${built.coupon ? `, coupon ${built.coupon.code}` : ''}`, adminUserId);
     return { ...order!, customerId, newCustomer: customer.created };
   });
+}
+
+/** One more use of a coupon. Its row is already locked by this order's transaction, so the count stays exact. */
+async function useCoupon(tx: Tx, couponId: number) {
+  await tx.update(coupons).set({ usedCount: sql`${coupons.usedCount} + 1` }).where(eq(coupons.id, couponId));
 }
 
 async function lockOrder(tx: Tx, id: number) {
@@ -354,7 +417,9 @@ export async function updateOrder(id: number, input: OrderInput, adminUserId: nu
     if (locationId === order.locationId) {
       for (const i of old) if (i.variantId && i.stockTaken) held.set(i.variantId, (held.get(i.variantId) ?? 0) + i.stockTaken);
     }
-    const built = await build(tx, input, locationId, held);
+    const built = await build(tx, input, locationId, held, {
+      existing: { id: order.id, couponId: order.couponId, couponCode: order.couponCode, customerId: order.customerId },
+    });
 
     // Give back what the old lines took, take what the new lines need.
     const note = `Order #${order.number} changed`;
@@ -368,7 +433,9 @@ export async function updateOrder(id: number, input: OrderInput, adminUserId: nu
       if (row.stockTaken) await changeStock(tx, row.variantId, locationId, -row.stockTaken, 'order', adminUserId, note);
     }
 
-    const customerId = (await customerFor(tx, input)).id;
+    // Same phone: the order stays with its customer (a signed-in shopper's gift order stays in their account).
+    const customerId = (await customerFor(tx, input, order.phone === input.customer.phone ? (order.customerId ?? undefined) : undefined)).id;
+    if (built.coupon?.isNew) await useCoupon(tx, built.coupon.id);
     await tx
       .update(orders)
       .set({ ...built.values, customerId, paymentStatus: paymentStatusOf(order.paidAmount, built.values.total, await hadRefund(tx, id)) })
@@ -377,6 +444,7 @@ export async function updateOrder(id: number, input: OrderInput, adminUserId: nu
       order.total !== built.values.total && `total ${taka(order.total)} → ${taka(built.values.total)}`,
       order.address !== input.address && 'address',
       order.phone !== input.customer.phone && 'phone',
+      order.couponCode !== (built.coupon?.code ?? null) && (built.coupon ? `coupon ${built.coupon.code}` : `coupon ${order.couponCode} removed`),
     ].filter(Boolean);
     await event(tx, id, 'edited', `Order changed${changes.length ? `: ${changes.join(', ')}` : ''}`, adminUserId);
   });
