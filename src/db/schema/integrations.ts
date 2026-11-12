@@ -39,6 +39,8 @@ export const messageLog = pgTable(
     error: text('error'),
     /** What it was for: "order.placed", "test", "login.code". */
     purpose: text('purpose').notNull(),
+    /** The provider's id for it (MiMSMS tracking id), for delivery reports. */
+    providerRef: text('provider_ref'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [index('message_log_created_at_idx').on(t.createdAt), index('message_log_channel_idx').on(t.channel, t.createdAt)],

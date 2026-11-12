@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../../../db/client.ts';
-import { categories, oldSiteUrls, products, redirects, type OldUrlKind } from '../../../db/schema/index.ts';
+import { categories, oldSiteUrls, pages, products, redirects, type OldUrlKind } from '../../../db/schema/index.ts';
 import { planSearch, searchRank, searchWhere } from '../../store/search.ts';
 import { saveRedirect } from '../seo/service.ts';
 
@@ -32,10 +32,11 @@ const GONE = /^\/(portfolio|order_status)\//;
 const lastPart = (path: string) => path.split('/').filter(Boolean).pop() ?? '';
 
 async function lookups() {
-  const [prods, cats, reds] = await Promise.all([
+  const [prods, cats, reds, pageRows] = await Promise.all([
     db.select({ slug: products.slug, status: products.status }).from(products),
     db.select({ id: categories.id, slug: categories.slug, name: categories.name, parentId: categories.parentId, isActive: categories.isActive }).from(categories),
     db.select({ fromPath: redirects.fromPath, toPath: redirects.toPath, code: redirects.code }).from(redirects),
+    db.select({ slug: pages.slug, isPublished: pages.isPublished }).from(pages),
   ]);
   const catById = new Map(cats.map((c) => [c.id, c]));
   const catPath = (id: number): string[] => {
@@ -48,6 +49,7 @@ async function lookups() {
     catPath,
     cats,
     redirect: new Map(reds.map((r) => [r.fromPath, r])),
+    page: new Map(pageRows.map((p) => [`/${p.slug}/`, p.isPublished])),
   };
 }
 
@@ -62,7 +64,10 @@ function stateOf(row: { path: string; kind: OldUrlKind }, l: Awaited<ReturnType<
     const c = l.category.get(lastPart(row.path));
     return { state: c ? (c.isActive ? 'ok' : 'hidden') : 'missing', to: null };
   }
-  return { state: SHOP_PAGES.has(row.path) ? 'ok' : 'missing', to: null };
+  if (SHOP_PAGES.has(row.path)) return { state: 'ok', to: null };
+  // A content page here (About, Terms...): works once published.
+  const page = l.page.get(row.path);
+  return { state: page === undefined ? 'missing' : page ? 'ok' : 'hidden', to: null };
 }
 
 /** Every old address with its state now, and counts per state and kind. */

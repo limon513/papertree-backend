@@ -7,6 +7,7 @@ import { importsRouter } from './imports/routes.ts';
 import { iconsRouter, mediaRouter } from './media/routes.ts';
 import { customersRouter } from './customers/routes.ts';
 import { bannersRouter } from './content/routes.ts';
+import { pagesRouter } from './content/pages.ts';
 import { couponsRouter } from './coupons/routes.ts';
 import { seoRouter } from './seo/routes.ts';
 import { migrationRouter } from './migration/routes.ts';
@@ -41,6 +42,7 @@ adminRouter.use('/search-synonyms', requireAdmin, requireModule('products'), syn
 adminRouter.use('/search-report', requireAdmin, requireModule('reports'), searchReportRouter);
 adminRouter.use('/product-requests', requireAdmin, requireModule('leads'), productRequestsRouter);
 adminRouter.use('/banners', requireAdmin, requireModule('content'), bannersRouter);
+adminRouter.use('/pages', requireAdmin, requireModule('content'), pagesRouter);
 adminRouter.use('/coupons', requireAdmin, requireModule('marketing'), couponsRouter);
 adminRouter.use('/seo', requireAdmin, requireModule('content'), seoRouter);
 adminRouter.use('/migration', requireAdmin, requireSuperAdmin, migrationRouter);
