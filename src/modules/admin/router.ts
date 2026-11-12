@@ -8,6 +8,8 @@ import { iconsRouter, mediaRouter } from './media/routes.ts';
 import { customersRouter } from './customers/routes.ts';
 import { bannersRouter } from './content/routes.ts';
 import { couponsRouter } from './coupons/routes.ts';
+import { seoRouter } from './seo/routes.ts';
+import { migrationRouter } from './migration/routes.ts';
 import { ordersRouter } from './orders/routes.ts';
 import { productsRouter, stockLocationsRouter } from './products/routes.ts';
 import { productRequestsRouter } from './requests/routes.ts';
@@ -40,4 +42,6 @@ adminRouter.use('/search-report', requireAdmin, requireModule('reports'), search
 adminRouter.use('/product-requests', requireAdmin, requireModule('leads'), productRequestsRouter);
 adminRouter.use('/banners', requireAdmin, requireModule('content'), bannersRouter);
 adminRouter.use('/coupons', requireAdmin, requireModule('marketing'), couponsRouter);
+adminRouter.use('/seo', requireAdmin, requireModule('content'), seoRouter);
+adminRouter.use('/migration', requireAdmin, requireSuperAdmin, migrationRouter);
 adminRouter.use('/integrations', requireAdmin, requireSuperAdmin, integrationsRouter);

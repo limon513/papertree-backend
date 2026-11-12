@@ -48,7 +48,7 @@ export interface LinkProduct {
   notes: string[];
 }
 
-type Found = Partial<Omit<LinkProduct, 'url' | 'site' | 'notes'>>;
+export type Found = Partial<Omit<LinkProduct, 'url' | 'site' | 'notes'>>;
 
 const MAX_PAGE_BYTES = 6 * 1024 * 1024;
 const MAX_DATA_BYTES = 3 * 1024 * 1024;
@@ -117,9 +117,9 @@ function jsonAt(html: string, from: number) {
 
 // ---- Any page: schema.org (JSON-LD) and Open Graph ----
 
-type Json = Record<string, unknown>;
-const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
-const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : v === undefined || v === null ? [] : [v]);
+export type Json = Record<string, unknown>;
+export const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
+export const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : v === undefined || v === null ? [] : [v]);
 
 function metaTags(html: string) {
   const tags = new Map<string, string[]>();
@@ -237,7 +237,14 @@ async function readWooCommerce(url: URL): Promise<Found | null> {
   const found = await fetchJson(`${api}?slug=${encodeURIComponent(slug)}`).catch(() => null);
   const p = list(found).find(isObject);
   if (!p) return null;
+  return fromWooStore(p, api, url.toString());
+}
 
+/**
+ * A product from a WooCommerce Store API answer, with its variations (one request each). Also used to
+ * copy the whole catalogue from the old site.
+ */
+export async function fromWooStore(p: Json, api: string, base: string): Promise<Found> {
   const names = (v: unknown) => list(v).filter(isObject).map((x) => text(x.name)).filter((x): x is string => !!x);
   const attributes = list(p.attributes).filter(isObject);
   const optionAttrs = attributes.filter((a) => a.has_variations).slice(0, MAX_OPTIONS);
@@ -264,7 +271,7 @@ async function readWooCommerce(url: URL): Promise<Found | null> {
         {
           values: values as string[],
           ...wooPrices(d?.prices as WooPrices | undefined, d?.on_sale === true),
-          image: absolute(list(d?.images).filter(isObject)[0]?.src, url.toString()),
+          image: absolute(list(d?.images).filter(isObject)[0]?.src, base),
         },
       ];
     });
@@ -290,7 +297,7 @@ async function readWooCommerce(url: URL): Promise<Found | null> {
       }),
     images: list(p.images)
       .filter(isObject)
-      .map((img) => absolute(img.src, url.toString()))
+      .map((img) => absolute(img.src, base))
       .filter((x): x is string => !!x),
     options: variants.length ? options : [],
     variants,

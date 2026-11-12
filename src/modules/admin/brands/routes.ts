@@ -8,6 +8,7 @@ import { audit } from '../../../lib/audit.ts';
 import { freeSlug, slugify } from '../../../lib/slug.ts';
 import { checkImageId, withImage, withImages } from '../media/view.ts';
 import { createBrandBody, updateBrandBody } from './schemas.ts';
+import { addressChanged, addressesInUse } from '../seo/service.ts';
 
 /** Mounted behind requireAdmin + requireModule('products'). */
 export const brandsRouter = Router();
@@ -81,6 +82,8 @@ brandsRouter.post('/', async (req, res) => {
       seoDescription: input.seoDescription ?? null,
     })
     .returning();
+  // A real page lives at this address now: an old redirect from it would hide it.
+  if (created) await addressesInUse(db, [`/brand/${created.slug}/`]);
 
   await audit(req, { action: 'brand.create', entityType: 'brand', entityId: created!.id, after: created });
   res.status(201).json(await withImage(created!));
@@ -111,6 +114,8 @@ brandsRouter.patch('/:id', async (req, res) => {
     })
     .where(eq(brands.id, id))
     .returning();
+  // A new address: the old one sends people (and Google) to it.
+  if (after && after.slug !== before.slug) await addressChanged(db, `/brand/${before.slug}/`, `/brand/${after.slug}/`);
 
   await audit(req, { action: 'brand.update', entityType: 'brand', entityId: id, before, after });
   res.json(await withImage(after!));

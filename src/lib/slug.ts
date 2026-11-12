@@ -1,11 +1,14 @@
-/** "Art & Craft Paper (A4)" -> "art-craft-paper-a4". Only a-z, 0-9 and single dashes. */
-export function slugify(text: string) {
+/**
+ * "Art & Craft Paper (A4)" -> "art-craft-paper-a4". Only a-z, 0-9 and single dashes. Made from a name: at
+ * most 100 characters; a URL name typed or copied from the old site keeps up to 200 (WordPress's limit).
+ */
+export function slugify(text: string, max = 100) {
   return text
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .slice(0, 100)
+    .slice(0, max)
     .replace(/^-+|-+$/g, '');
 }
 

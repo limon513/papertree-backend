@@ -15,6 +15,8 @@ export const QUEUES = {
   productImport: 'product-import',
   /** Data: { orderId }. Emails after a website order (customer confirmation, shop alert). */
   orderPlaced: 'order-placed',
+  /** Data: { runId } of an old_site_runs row. Reads the old website for "Move from old site". */
+  oldSiteRead: 'old-site-read',
 } as const;
 
 let started: Promise<PgBoss> | null = null;
@@ -28,6 +30,8 @@ export function startBoss() {
     await boss.createQueue(QUEUES.productImport, { expireInSeconds: 3 * 3600, retryLimit: 2, retryDelay: 30 });
     // Emails: retried a few times if something goes wrong (each email is still sent only once).
     await boss.createQueue(QUEUES.orderPlaced, { expireInSeconds: 300, retryLimit: 3, retryDelay: 60 });
+    // Reading a big old site can take a while; not retried (start it again from the page instead).
+    await boss.createQueue(QUEUES.oldSiteRead, { expireInSeconds: 3 * 3600, retryLimit: 0 });
     return boss;
   })();
   return started;

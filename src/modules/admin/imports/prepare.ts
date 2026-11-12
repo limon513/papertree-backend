@@ -27,6 +27,8 @@ export const pathKey = (path: string[]) => path.map((s) => s.toLowerCase()).join
 export function toProductBody(p: ImportProduct, status: ImportProduct['status']) {
   return {
     name: p.name,
+    // The old address, kept (old site copy). Otherwise one is made from the name.
+    ...(p.slug ? { slug: p.slug } : {}),
     status: status ?? 'draft',
     shortDescription: p.shortDescription?.slice(0, 1000) ?? null,
     description: p.description,
@@ -57,7 +59,8 @@ export function toProductBody(p: ImportProduct, status: ImportProduct['status'])
 /** Decides for every product: create, update, skip, or error (with the reason). Nothing is saved. */
 export async function prepareImport(items: ImportProduct[], options: ImportOptions): Promise<PreparedRow[]> {
   const skus = [...new Set(items.flatMap((p) => p.variants.flatMap((v) => (v.sku ? [v.sku.toLowerCase()] : []))))];
-  const [existingSkus, categoryIndex, brandRows] = await Promise.all([
+  const slugs = [...new Set(items.flatMap((p) => (p.slug ? [p.slug] : [])))];
+  const [existingSkus, categoryIndex, brandRows, slugRows] = await Promise.all([
     skus.length
       ? db
           .select({ sku: productVariants.sku, productId: products.id, productName: products.name })
@@ -67,7 +70,9 @@ export async function prepareImport(items: ImportProduct[], options: ImportOptio
       : [],
     categoryPathIndex(),
     db.select({ name: brands.name }).from(brands),
+    slugs.length ? db.select({ slug: products.slug, name: products.name }).from(products).where(inArray(products.slug, slugs)) : [],
   ]);
+  const slugOwner = new Map(slugRows.map((r) => [r.slug, r.name]));
   const skuOwner = new Map(existingSkus.map((r) => [r.sku!.toLowerCase(), r]));
   const brandNames = new Set(brandRows.map((b) => b.name.toLowerCase()));
 
@@ -81,6 +86,8 @@ export async function prepareImport(items: ImportProduct[], options: ImportOptio
 
   return items.map((p): PreparedRow => {
     if (p.problems.length) return { product: p, action: 'error', message: p.problems.slice(0, 5).join('\n') };
+    // Old site copy: already here at the same address (copied before): nothing to do.
+    if (p.slug && slugOwner.has(p.slug)) return { product: p, action: 'skip', message: `Already in the shop at /product/${p.slug}/ ("${slugOwner.get(p.slug)}")` };
 
     const dupes = p.variants.filter((v) => v.sku && (skuCount.get(v.sku.toLowerCase()) ?? 0) > 1);
     if (dupes.length) {

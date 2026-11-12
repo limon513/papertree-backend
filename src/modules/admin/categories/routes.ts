@@ -8,6 +8,7 @@ import { audit } from '../../../lib/audit.ts';
 import { freeSlug, slugify } from '../../../lib/slug.ts';
 import { checkImageId, withImage, withImages } from '../media/view.ts';
 import { createCategoryBody, MAX_CATEGORY_DEPTH, reorderCategoriesBody, updateCategoryBody } from './schemas.ts';
+import { addressChanged, addressesInUse } from '../seo/service.ts';
 
 /** Mounted behind requireAdmin + requireModule('products'). */
 export const categoriesRouter = Router();
@@ -125,6 +126,8 @@ categoriesRouter.post('/', async (req, res) => {
       sortOrder: nextSortOrder(rows, input.parentId),
     })
     .returning();
+  // A real page lives at this address now: an old redirect from it would hide it.
+  if (created) await addressesInUse(db, [`/product-category/${[...chainOf(rows, created.parentId), created.slug].join('/')}/`, `/product-category/${created.slug}/`]);
 
   await audit(req, { action: 'category.create', entityType: 'category', entityId: created!.id, after: created });
   res.status(201).json(await withImage(created!));
@@ -161,10 +164,32 @@ categoriesRouter.patch('/:id', async (req, res) => {
     })
     .where(eq(categories.id, id))
     .returning();
+  // A new address: the old ones (full and short) send people (and Google) to it. Sub-categories keep
+  // working by themselves: the website finds a category by its own last part.
+  if (after && after.slug !== before.slug) {
+    const others = rows.filter((r) => r.id !== id);
+    const pathOf = (slug: string, parent: number | null) => [...chainOf(others, parent), slug].join('/');
+    const newPath = `/product-category/${pathOf(after.slug, after.parentId)}/`;
+    await addressChanged(db, `/product-category/${pathOf(before.slug, before.parentId)}/`, newPath);
+    await addressChanged(db, `/product-category/${before.slug}/`, newPath);
+  }
 
   await audit(req, { action: 'category.update', entityType: 'category', entityId: id, before, after });
   res.json(await withImage(after!));
 });
+
+/** Slugs from the top category down to (and with) `parentId`. */
+function chainOf(rows: { id: number; parentId: number | null; slug: string }[], parentId: number | null) {
+  const chain: string[] = [];
+  let at = parentId;
+  for (let i = 0; at !== null && i < 20; i++) {
+    const row = rows.find((r) => r.id === at);
+    if (!row) break;
+    chain.unshift(row.slug);
+    at = row.parentId;
+  }
+  return chain;
+}
 
 categoriesRouter.post('/reorder', async (req, res) => {
   const input = reorderCategoriesBody.parse(req.body);
