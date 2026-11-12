@@ -77,7 +77,7 @@ function itemsTable(d: Loaded) {
     `<tr><td colspan="2" style="padding:4px 0;font-size:${strong ? 16 : 14}px;${strong ? 'font-weight:700' : 'color:#52525b'}">${label}</td><td style="padding:4px 0;text-align:right;font-size:${strong ? 16 : 14}px;${strong ? 'font-weight:700' : ''}">${value}</td></tr>`;
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e4e4e7;border-bottom:1px solid #e4e4e7;margin:16px 0">${rows}</table>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-${line('Items', taka(o.subtotal))}${o.bulkDiscount ? line('You saved with bulk discounts', taka(o.bulkDiscount)) : ''}${o.discount ? line('Discount', `−${taka(o.discount)}`) : ''}${line('Delivery', o.deliveryFee === 0 ? 'Free' : taka(o.deliveryFee))}${line('Total (cash on delivery)', taka(o.total), true)}
+${line('Items', taka(o.subtotal))}${o.bulkDiscount ? line('You saved with bulk discounts', taka(o.bulkDiscount)) : ''}${o.discount ? line('Discount', `−${taka(o.discount)}`) : ''}${o.couponDiscount ? line(`Coupon ${esc(o.couponCode ?? '')}`, `−${taka(o.couponDiscount)}`) : ''}${line('Delivery', o.deliveryFee === 0 ? 'Free' : taka(o.deliveryFee))}${line('Total (cash on delivery)', taka(o.total), true)}
 </table>`;
 }
 
@@ -110,6 +110,7 @@ ${button(link, 'See your order')}
     `Items: ${taka(o.subtotal)}`,
     ...(o.bulkDiscount ? [`You saved ${taka(o.bulkDiscount)} with bulk discounts`] : []),
     `Delivery: ${o.deliveryFee === 0 ? 'Free' : taka(o.deliveryFee)}`,
+    ...(o.couponDiscount ? [`Coupon ${o.couponCode}: −${taka(o.couponDiscount)}`] : []),
     `Total (cash on delivery): ${taka(o.total)}`,
     '',
     `See your order: ${link}`,

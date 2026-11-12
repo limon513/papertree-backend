@@ -10,6 +10,8 @@ import { AREAS, DISTRICTS, getSettings, listZones, LOCATIONS, quote } from '../a
 import { activeCategories, cards, CURRENT_PRICE, facets, imagesById, inCategories, LOW_STOCK, SORTS } from './catalog.ts';
 import { cartBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
 import { nameMatches, planSearch, productBySku, searchRank, searchWhere } from './search.ts';
+import { checkCouponUse, cleanCode, codeGuard, CouponError, couponFor, couponLabel, findCoupon, shortfallMessage } from '../admin/coupons/service.ts';
+import { currentCustomer } from './account/session.ts';
 import { storeOrdersRouter } from './orders.ts';
 import { accountRouter } from './account/routes.ts';
 import { getIntegration } from '../admin/integrations/service.ts';
@@ -432,8 +434,54 @@ storeRouter.post('/cart', async (req, res) => {
   }
 
   // subtotal: after bulk discounts (bulkSavings is what they took off).
-  res.json({ lines: shown, itemCount: ok.reduce((s, l) => s + l.quantity, 0), subtotal, bulkSavings, weightKg, delivery });
+  // The coupon: worked out like the order will (the per-person rules need a phone, so a signed-in
+  // shopper gets them now and everyone else when placing the order).
+  let coupon: StoreCartCoupon | null = null;
+  const code = input.couponCode ? cleanCode(input.couponCode) : '';
+  if (code) {
+    if (!codeGuard.allowed(req.ip)) {
+      coupon = { code, ok: false, message: 'Too many wrong codes. Please wait a few minutes and try again.', short: null, itemsOff: 0, deliveryOff: 0, label: null, checkedAtOrder: false };
+    } else {
+      try {
+        const me = await currentCustomer(req);
+        const c = await findCoupon(db, code);
+        const use = await checkCouponUse(db, c, { phone: me?.phone ?? null, customerId: me?.id ?? null });
+        const result = await couponFor(db, c!, ok.map((l) => ({ productId: l.productId, lineTotal: l.lineTotal, onSale: l.regularPrice !== null, bulkPercent: ('bulk' in l && l.bulk.percent) || null })), delivery?.fee ?? null);
+        coupon = {
+          code: c!.code,
+          ok: result.ok,
+          message: result.ok ? null : shortfallMessage(result),
+          short: result.short,
+          itemsOff: result.itemsOff,
+          deliveryOff: result.deliveryOff,
+          label: couponLabel(c!),
+          checkedAtOrder: !use.phoneChecked,
+        };
+      } catch (err) {
+        if (!(err instanceof CouponError)) throw err;
+        if (err.reason === 'unknown') codeGuard.failed(req.ip);
+        coupon = { code, ok: false, message: err.message, short: null, itemsOff: 0, deliveryOff: 0, label: null, checkedAtOrder: false };
+      }
+    }
+  }
+
+  res.json({ lines: shown, itemCount: ok.reduce((s, l) => s + l.quantity, 0), subtotal, bulkSavings, weightKg, delivery, coupon });
 });
+
+/** The coupon part of a cart check. itemsOff and deliveryOff are already worked out; the total is subtotal − itemsOff + (delivery − deliveryOff). */
+interface StoreCartCoupon {
+  code: string;
+  ok: boolean;
+  /** Why it gives nothing now ("Add ৳120 more to use this code"). */
+  message: string | null;
+  short: number | null;
+  itemsOff: number;
+  deliveryOff: number;
+  /** "10% off", "৳100 off", "Free delivery". */
+  label: string | null;
+  /** Rules for one person (once per customer, first orders, private) are checked when the order is placed. */
+  checkedAtOrder: boolean;
+}
 
 // ---- Orders (checkout) ----
 

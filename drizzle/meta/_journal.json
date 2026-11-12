@@ -127,6 +127,13 @@
       "when": 1794417264795,
       "tag": "0017_bulk_discounts",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794419400921,
+      "tag": "0018_coupons",
+      "breakpoints": true
     }
   ]
 }
