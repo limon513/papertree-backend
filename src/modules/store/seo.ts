@@ -3,7 +3,8 @@ import { rateLimit } from 'express-rate-limit';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db/client.ts';
-import { brands, notFoundLog, products, redirects } from '../../db/schema/index.ts';
+import { brands, notFoundLog, pages, products, redirects } from '../../db/schema/index.ts';
+import { notFound } from '../../lib/errors.ts';
 import { cleanPath } from '../../lib/paths.ts';
 import { activeCategories } from './catalog.ts';
 
@@ -65,10 +66,11 @@ storeSeoRouter.post('/seen', reportLimiter, async (req, res) => {
 
 /** Everything Google should know about: products, categories (with products), brands. */
 storeSeoRouter.get('/sitemap', async (_req, res) => {
-  const [rows, cats, brandRows] = await Promise.all([
+  const [rows, cats, brandRows, pageRows] = await Promise.all([
     db.select({ slug: products.slug, updatedAt: products.updatedAt }).from(products).where(eq(products.status, 'active')).orderBy(asc(products.id)),
     activeCategories(),
     db.select({ slug: brands.slug, updatedAt: brands.updatedAt }).from(brands).where(and(eq(brands.isActive, true))),
+    db.select({ slug: pages.slug, updatedAt: pages.updatedAt }).from(pages).where(eq(pages.isPublished, true)),
   ]);
   const pathOf = (id: number): string[] => {
     const c = cats.all.find((x) => x.id === id);
@@ -78,5 +80,16 @@ storeSeoRouter.get('/sitemap', async (_req, res) => {
     products: rows.map((p) => ({ slug: p.slug, updatedAt: p.updatedAt })),
     categories: cats.all.filter((c) => cats.count(c.id) > 0).map((c) => ({ path: pathOf(c.id).join('/') })),
     brands: brandRows.map((b) => ({ slug: b.slug, updatedAt: b.updatedAt })),
+    pages: pageRows.map((p) => ({ slug: p.slug, updatedAt: p.updatedAt })),
   });
+});
+
+/** A published content page (About, Terms...). */
+storeSeoRouter.get('/pages/:slug', async (req, res) => {
+  const [page] = await db
+    .select({ slug: pages.slug, title: pages.title, body: pages.body, seoTitle: pages.seoTitle, seoDescription: pages.seoDescription, showContact: pages.showContact, updatedAt: pages.updatedAt })
+    .from(pages)
+    .where(and(eq(pages.slug, String(req.params.slug).toLowerCase()), eq(pages.isPublished, true)));
+  if (!page) throw notFound('Page not found');
+  res.set('cache-control', 'public, max-age=60').json(page);
 });

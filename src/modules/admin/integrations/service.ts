@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { isProduction } from '../../../config/env.ts';
 import { db } from '../../../db/client.ts';
 import { adminUsers, integrations, INTEGRATION_KEYS, messageLog } from '../../../db/schema/index.ts';
 import { logger } from '../../../lib/logger.ts';
@@ -47,10 +48,12 @@ export function stateOf(key: IntegrationKey, s: Loaded<IntegrationKey>) {
   switch (key) {
     case 'email':
       if (set.provider === 'off') return 'off';
-      return s.secrets.apiKey && set.fromEmail ? 'ready' : 'incomplete';
+      if (!(s.secrets.apiKey && set.fromEmail)) return 'incomplete';
+      return set.testMode || !isProduction ? 'test' : 'ready';
     case 'sms':
       if (set.provider === 'log') return 'test';
-      return 'incomplete'; // BulkSMSBD is connected in a later step.
+      if (!(s.secrets.apiKey && set.userName && set.senderId)) return 'incomplete';
+      return set.testMode || !isProduction ? 'test' : 'ready';
     case 'google':
       if (!set.enabled) return 'off';
       return set.apiKey && set.authDomain && set.projectId && set.appId ? 'ready' : 'incomplete';
@@ -102,6 +105,15 @@ export async function saveIntegration(key: IntegrationKey, rawSettings: unknown,
 
 // ---- Sending ----
 
+/**
+ * Real messages cost money: in test mode, and always away from the live server, they go only to the
+ * test numbers / addresses. Everything else is written to the message log, nothing sent.
+ */
+function reallySend(testMode: boolean, allowed: string[], to: string) {
+  if (testMode || !isProduction) return allowed.includes(to);
+  return true;
+}
+
 type Purpose = 'test' | 'order.placed' | 'order.alert' | 'login.code' | (string & {});
 
 /** Sends an email with the shop's email service, and writes it to the message log. Never throws. */
@@ -114,6 +126,9 @@ export async function sendEmail(message: { to: string; subject: string; html: st
       .returning();
   if (settings.provider === 'off') return (await record('logged', 'Email is switched off'))[0]!;
   if (!secrets.apiKey || !settings.fromEmail) return (await record('failed', 'Email is not set up: add the Resend API key and the From address'))[0]!;
+  if (!reallySend(settings.testMode, settings.testRecipients, message.to.toLowerCase())) {
+    return (await record('logged', isProduction ? 'Test mode: sent only to the test addresses' : 'Not the live server: sent only to the test addresses'))[0]!;
+  }
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -137,24 +152,76 @@ export async function sendEmail(message: { to: string; subject: string; html: st
 }
 
 /** Sends an SMS with the shop's SMS service (test mode: only written to the log). Never throws. */
+const MIMSMS = 'https://api.mimsms.com/api/V2';
+
+/** "01712345678" -> "8801712345678" (MiMSMS wants the country code). */
+const intl = (phone: string) => `88${phone}`;
+
 /**
- * `logText`: what the log keeps once SMS really goes out (e.g. a sign-in code hidden). In test mode the
- * full text is kept, as the log is then the only place to read it.
+ * Sends an SMS with the shop's SMS service, and writes it to the log. Never throws.
+ * `logText`: what the log keeps when it really goes out (a sign-in code is hidden); otherwise the full
+ * text is kept, as the log is then the only place to read it.
  */
 export async function sendSms(message: { to: string; text: string; logText?: string; purpose: Purpose }) {
-  const { settings } = await getIntegration('sms');
-  const [row] = await db
-    .insert(messageLog)
-    .values({
-      channel: 'sms',
-      to: message.to,
-      body: message.text,
-      // BulkSMSBD is connected in a later step: until then every SMS stays in the log.
-      status: 'logged',
-      provider: settings.provider,
-      error: settings.provider === 'log' ? null : 'BulkSMSBD is not connected yet: kept in the log',
-      purpose: message.purpose,
-    })
-    .returning();
-  return row!;
+  const { settings, secrets } = await getIntegration('sms');
+  const record = async (status: 'sent' | 'failed' | 'logged', error: string | null, providerRef: string | null = null) => {
+    const [row] = await db
+      .insert(messageLog)
+      .values({ channel: 'sms', to: message.to, body: status === 'sent' ? (message.logText ?? message.text) : message.text, status, provider: settings.provider, error, purpose: message.purpose, providerRef })
+      .returning();
+    return row!;
+  };
+  if (settings.provider === 'log') return record('logged', 'Test mode: SMS are only written to the log');
+  if (!secrets.apiKey || !settings.userName || !settings.senderId) return record('failed', 'MiMSMS is not set up: add the account email, Sender ID and API key');
+  if (!reallySend(settings.testMode, settings.testNumbers, message.to)) {
+    return record('logged', isProduction ? 'Test mode: sent only to the test numbers' : 'Not the live server: sent only to the test numbers');
+  }
+  try {
+    const res = await fetch(`${MIMSMS}/SMS`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        apiKey: secrets.apiKey,
+        userName: settings.userName,
+        senderName: settings.senderId,
+        transactionType: 'T',
+        mobileNumber: intl(message.to),
+        message: message.text,
+        campaignName: message.purpose,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const body = (await res.json().catch(() => null)) as {
+      statusCode?: string;
+      status?: string;
+      responseResult?: string;
+      trxnId?: string;
+      success_Data?: { trackingId?: string }[] | null;
+      error_Data?: { error?: string }[];
+    } | null;
+    if (res.ok && body?.statusCode === '200') return record('sent', null, body.success_Data?.[0]?.trackingId ?? body.trxnId ?? null);
+    const reason = body?.error_Data?.[0]?.error ?? body?.responseResult ?? res.statusText;
+    return record('failed', `MiMSMS said: ${reason} (${body?.statusCode ?? res.status})`);
+  } catch (err) {
+    return record('failed', `Could not reach MiMSMS: ${(err as Error).message}`);
+  }
+}
+
+/** SMS left on the MiMSMS account. Free (nothing is sent): also a check that the key and IP allow-list work. */
+export async function smsBalance() {
+  const { settings, secrets } = await getIntegration('sms');
+  if (settings.provider !== 'mimsms' || !secrets.apiKey || !settings.userName) return { ok: false as const, message: 'Choose MiMSMS and save the account email and API key first.' };
+  try {
+    const res = await fetch(`${MIMSMS}/BalanceCheck`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: secrets.apiKey, userName: settings.userName }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const body = (await res.json().catch(() => null)) as { statusCode?: string; status?: string; responseResult?: string } | null;
+    if (res.ok && body?.statusCode === '200') return { ok: true as const, balance: body.responseResult ?? '0' };
+    return { ok: false as const, message: `MiMSMS said: ${body?.responseResult ?? res.statusText} (${body?.statusCode ?? res.status}). Check the API key is active and this server's IP is allowed (sms.mimsms.com → Utility → Developer).` };
+  } catch (err) {
+    return { ok: false as const, message: `Could not reach MiMSMS: ${(err as Error).message}` };
+  }
 }

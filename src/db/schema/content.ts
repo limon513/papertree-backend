@@ -31,3 +31,25 @@ export const banners = pgTable(
   },
   (t) => [index('banners_placement_idx').on(t.placement, t.sortOrder)],
 );
+
+/**
+ * Content pages: About us, Contact, Terms, Refund policy, Privacy... at /<slug>/ (the old site's
+ * addresses are kept, e.g. /terms-and-condition/). Written in the admin (Website Content > Pages).
+ */
+export const pages = pgTable('pages', {
+  id: id(),
+  slug: text('slug').notNull().unique(),
+  title: text('title').notNull(),
+  /** Cleaned HTML from the editor. */
+  body: text('body'),
+  seoTitle: text('seo_title'),
+  seoDescription: text('seo_description'),
+  /** Drafts are only seen in the admin. */
+  isPublished: boolean('is_published').notNull().default(false),
+  /** Linked in the website footer. */
+  showInFooter: boolean('show_in_footer').notNull().default(true),
+  /** Shows the shop's phone, WhatsApp, email, address and hours (from Settings) under the text. */
+  showContact: boolean('show_contact').notNull().default(false),
+  sortOrder: integer('sort_order').notNull().default(0),
+  ...timestamps,
+});

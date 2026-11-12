@@ -8,7 +8,7 @@ import { normalizePhone, isBdPhone } from '../../../lib/phone.ts';
 import { canKeepSecrets } from '../../../lib/secrets.ts';
 import { currentAdmin } from '../../../middleware/admin-auth.ts';
 import { integrationBody, integrationKeyParam, messageListQuery, testBody } from './schemas.ts';
-import { allIntegrationViews, integrationView, saveIntegration, sendEmail, sendSms } from './service.ts';
+import { allIntegrationViews, integrationView, saveIntegration, sendEmail, sendSms, smsBalance } from './service.ts';
 
 /** Outside services (email, SMS, Google sign-in, payment). Mounted behind requireAdmin + requireSuperAdmin. */
 export const integrationsRouter = Router();
@@ -36,6 +36,11 @@ integrationsRouter.put('/:key', async (req, res) => {
   // Only which fields changed, never their values.
   await audit(req, { action: 'integration.update', entityType: 'integration', entityId: key, after: { changed } });
   res.json(await integrationView(key));
+});
+
+/** SMS left on the account (MiMSMS). Free: nothing is sent, so it is the safe way to check the connection. */
+integrationsRouter.post('/sms/balance', async (_req, res) => {
+  res.json(await smsBalance());
 });
 
 integrationsRouter.post('/:key/test', async (req, res) => {

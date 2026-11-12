@@ -23,14 +23,26 @@ export const INTEGRATIONS = {
       replyTo: email,
       /** Where "new order" alerts go. */
       staffEmail: email,
+      /** Test mode: emails go only to the test addresses (the rest are only written to the log). Always on away from the live server. */
+      testMode: z.boolean().default(true),
+      testRecipients: z.array(z.string().trim().toLowerCase().pipe(z.email({ error: 'Enter a valid email address' }))).max(10, { error: 'At most 10' }).default([]),
     }),
     secrets: ['apiKey'] as const,
   },
   sms: {
     settings: z.object({
-      /** log: test mode, messages are only written to the message log; bulksmsbd: real SMS (being connected). */
-      provider: z.enum(['log', 'bulksmsbd']).default('log'),
+      /** log: never send, only write to the message log; mimsms: send with MiMSMS. */
+      provider: z.enum(['log', 'mimsms']).catch('log').default('log'),
+      /** MiMSMS: the email you sign in to sms.mimsms.com with. */
+      userName: email,
+      /** MiMSMS: the Sender ID (sms.mimsms.com → Utility → Sender ID), a name or a number. */
       senderId: text(20),
+      /** Test mode: SMS go only to the test numbers (the rest are only written to the log). Always on away from the live server. */
+      testMode: z.boolean().default(true),
+      testNumbers: z
+        .array(z.string().trim().transform((v) => v.replace(/[\s()-]/g, '').replace(/^\+?880/, '0')).refine((v) => /^01\d{9}$/.test(v), { error: 'A mobile number like 01712345678' }))
+        .max(10, { error: 'At most 10' })
+        .default([]),
     }),
     secrets: ['apiKey'] as const,
   },
