@@ -134,6 +134,20 @@
       "when": 1794419400921,
       "tag": "0018_coupons",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794494562731,
+      "tag": "0019_seo_redirects",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794496081327,
+      "tag": "0020_old_site_runs",
+      "breakpoints": true
     }
   ]
 }

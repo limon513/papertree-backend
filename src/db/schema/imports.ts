@@ -9,7 +9,7 @@ import { id, ref, timestamps, timestamptz } from './_helpers.ts';
  * done / failed / cancelled: finished.
  */
 export type ImportStatus = 'preview' | 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
-export type ImportFormat = 'papertree' | 'woocommerce' | 'daraz' | 'link';
+export type ImportFormat = 'papertree' | 'woocommerce' | 'daraz' | 'link' | 'old-site';
 
 export interface ImportOptions {
   /** What to do when a product's SKU already exists. */

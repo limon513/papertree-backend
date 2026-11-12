@@ -14,6 +14,7 @@ import { checkCouponUse, cleanCode, codeGuard, CouponError, couponFor, couponLab
 import { currentCustomer } from './account/session.ts';
 import { storeOrdersRouter } from './orders.ts';
 import { accountRouter } from './account/routes.ts';
+import { storeSeoRouter } from './seo.ts';
 import { getIntegration } from '../admin/integrations/service.ts';
 
 /** Public API for the website. Mounted at /v1/store. Shoppers may sign in (account routes). */
@@ -487,3 +488,4 @@ interface StoreCartCoupon {
 
 storeRouter.use('/orders', storeOrdersRouter);
 storeRouter.use(accountRouter);
+storeRouter.use(storeSeoRouter);

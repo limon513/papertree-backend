@@ -33,8 +33,8 @@ export const optionalText = (max: number) =>
 export const slugInput = z
   .string()
   .trim()
-  .max(120, { error: 'URL name is too long' })
-  .transform(slugify)
+  .max(200, { error: 'URL name is too long (200 characters at most)' })
+  .transform((v) => slugify(v, 200))
   .meta({ description: 'URL name, e.g. "art-paper". Leave empty to make it from the name.' });
 
 /** An uploaded image and/or an icon. The website shows the image if there is one, otherwise the icon. */

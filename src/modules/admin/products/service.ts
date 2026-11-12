@@ -18,6 +18,7 @@ import { cleanHtml } from '../../../lib/html.ts';
 import { freeSlug, slugify } from '../../../lib/slug.ts';
 import { mediaView, withImages } from '../media/view.ts';
 import type { ProductBulkInput, ProductInput, StockUpdateInput } from './schemas.ts';
+import { addressChanged, addressesInUse } from '../seo/service.ts';
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -308,6 +309,7 @@ export async function saveProduct(input: ProductInput, adminUserId: number | nul
 
   return db.transaction(async (tx) => {
     let id: number;
+    const [previous] = productId === undefined ? [] : await tx.select({ slug: products.slug }).from(products).where(eq(products.id, productId));
     if (productId === undefined) {
       const [row] = await tx
         .insert(products)
@@ -319,6 +321,8 @@ export async function saveProduct(input: ProductInput, adminUserId: number | nul
         })
         .returning({ id: products.id });
       id = row!.id;
+      // A real page lives at this address now: an old redirect from it would hide it.
+      await addressesInUse(tx, [`/product/${slug}/`]);
     } else {
       id = productId;
       await tx
@@ -330,6 +334,8 @@ export async function saveProduct(input: ProductInput, adminUserId: number | nul
           publishedAt: input.status === 'active' ? sql`coalesce(${products.publishedAt}, now())` : undefined,
         })
         .where(eq(products.id, id));
+      // A new address: the old one sends people (and Google) to it.
+      if (slug && previous && previous.slug !== slug) await addressChanged(tx, `/product/${previous.slug}/`, `/product/${slug}/`);
     }
 
     // Categories: replace. The main one is marked.

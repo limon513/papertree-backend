@@ -39,6 +39,8 @@ export interface ImportProduct {
   variants: ImportVariant[];
   seoTitle: string | null;
   seoDescription: string | null;
+  /** The address to keep (old site copy): /product/<slug>/ stays the same, so old links keep working. */
+  slug?: string | null;
   /** Problems found while reading. A product with problems is not imported. */
   problems: string[];
 }
