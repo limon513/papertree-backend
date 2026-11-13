@@ -6,6 +6,8 @@ import {
   checkoutSettings,
   checkoutSettingsSchema,
   locationsSchema,
+  MESSAGE_EVENTS,
+  messagesSettings,
   quoteBody,
   quoteSchema,
   settingsResponse,
@@ -49,6 +51,25 @@ export const settingsDocs: ZodOpenApiPathsObject = {
       description: `${access} Cash on delivery, wholesale advance, minimum order and wholesale delivery.`,
       requestBody: jsonBody(checkoutSettings),
       responses: { '200': json(checkoutSettingsSchema), ...errors(400, 401, 403) },
+    },
+  },
+  '/v1/admin/settings/messages': {
+    put: {
+      tags,
+      security,
+      summary: 'Save which customer messages go out',
+      description: `${access} For each order step (placed, confirmed, shipped, delivered, cancelled): SMS and/or email. SMS cost money.`,
+      requestBody: jsonBody(messagesSettings),
+      responses: { '200': json(messagesSettings), ...errors(400, 401, 403) },
+    },
+  },
+  '/v1/admin/settings/messages/samples': {
+    get: {
+      tags,
+      security,
+      summary: 'Example SMS for each order step',
+      description: `${access} Made-up order, the shop's own name and phone. Plain English letters, at most 160 (one SMS).`,
+      responses: { '200': json(z.record(z.enum(MESSAGE_EVENTS), z.string())), ...errors(401, 403) },
     },
   },
   '/v1/admin/store-info': {

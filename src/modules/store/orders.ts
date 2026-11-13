@@ -116,6 +116,8 @@ export async function orderView(where: SQL) {
     districtName: o.districtName,
     deliveryTime: order.deliveryTime,
     paymentMethod: o.paymentMethod,
+    courier: o.courier,
+    trackingCode: o.trackingCode,
     items: items.map((i) => ({
       // For "Order again" (null when the product was deleted).
       variantId: i.variantId,

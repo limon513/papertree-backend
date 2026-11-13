@@ -13,12 +13,12 @@ import { imagesById } from './catalog.ts';
  * checkout never waits for email. Each is sent once: a retry skips what was already sent.
  */
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-const taka = (n: number) => `৳${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-const site = () => env.STOREFRONT_URL.replace(/\/$/, '');
+export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+export const taka = (n: number) => `৳${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+export const site = () => env.STOREFRONT_URL.replace(/\/$/, '');
 const admin = () => env.ADMIN_APP_URL.replace(/\/$/, '');
 
-async function load(orderId: number) {
+export async function load(orderId: number) {
   const [row] = await db
     .select({ order: orders, deliveryTime: deliveryZones.deliveryTime })
     .from(orders)
@@ -30,21 +30,21 @@ async function load(orderId: number) {
   const logo = store.logoImageId ? (await imagesById([store.logoImageId])).get(store.logoImageId) : undefined;
   return { order: row.order, deliveryTime: row.deliveryTime, items, store, images, logoUrl: logo ? (logo.urls['160'] ?? Object.values(logo.urls)[0]) : null };
 }
-type Loaded = NonNullable<Awaited<ReturnType<typeof load>>>;
+export type Loaded = NonNullable<Awaited<ReturnType<typeof load>>>;
 
-/** Was this email already sent (a retried job)? */
-async function alreadySent(purpose: string) {
+/** Was this message already sent (a retried job, or the same step twice)? */
+export async function alreadySent(purpose: string, channel: 'email' | 'sms' = 'email') {
   const [row] = await db
     .select({ id: messageLog.id })
     .from(messageLog)
-    .where(and(eq(messageLog.purpose, purpose), inArray(messageLog.status, ['sent'])))
+    .where(and(eq(messageLog.purpose, purpose), eq(messageLog.channel, channel), inArray(messageLog.status, ['sent'])))
     .limit(1);
   return !!row;
 }
 
 // ---- The email layout (inline styles: email apps ignore stylesheets) ----
 
-function layout(d: Loaded, title: string, body: string) {
+export function layout(d: Loaded, title: string, body: string) {
   const { store } = d;
   return `<!doctype html><html><body style="margin:0;background:#f4f4f5;font-family:Segoe UI,Arial,sans-serif;color:#18181b">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:24px 12px"><tr><td align="center">
@@ -61,7 +61,7 @@ ${esc(store.name)} Bangladesh${store.phone ? ` · ${esc(store.phone)}` : ''}${st
 </td></tr></table></td></tr></table></body></html>`;
 }
 
-function itemsTable(d: Loaded) {
+export function itemsTable(d: Loaded, totalLabel = 'Total (cash on delivery)') {
   const rows = d.items
     .map((i) => {
       const img = i.imageId ? d.images.get(i.imageId) : undefined;
@@ -77,12 +77,12 @@ function itemsTable(d: Loaded) {
     `<tr><td colspan="2" style="padding:4px 0;font-size:${strong ? 16 : 14}px;${strong ? 'font-weight:700' : 'color:#52525b'}">${label}</td><td style="padding:4px 0;text-align:right;font-size:${strong ? 16 : 14}px;${strong ? 'font-weight:700' : ''}">${value}</td></tr>`;
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e4e4e7;border-bottom:1px solid #e4e4e7;margin:16px 0">${rows}</table>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-${line('Items', taka(o.subtotal))}${o.bulkDiscount ? line('You saved with bulk discounts', taka(o.bulkDiscount)) : ''}${o.discount ? line('Discount', `−${taka(o.discount)}`) : ''}${o.couponDiscount ? line(`Coupon ${esc(o.couponCode ?? '')}`, `−${taka(o.couponDiscount)}`) : ''}${line('Delivery', o.deliveryFee === 0 ? 'Free' : taka(o.deliveryFee))}${line('Total (cash on delivery)', taka(o.total), true)}
+${line('Items', taka(o.subtotal))}${o.bulkDiscount ? line('You saved with bulk discounts', taka(o.bulkDiscount)) : ''}${o.discount ? line('Discount', `−${taka(o.discount)}`) : ''}${o.couponDiscount ? line(`Coupon ${esc(o.couponCode ?? '')}`, `−${taka(o.couponDiscount)}`) : ''}${line('Delivery', o.deliveryFee === 0 ? 'Free' : taka(o.deliveryFee))}${line(totalLabel, taka(o.total), true)}
 </table>`;
 }
 
-const placeOf = (o: Loaded['order']) => [o.address, o.areaName, o.districtName].filter(Boolean).join(', ');
-const button = (href: string, label: string) =>
+export const placeOf = (o: Loaded['order']) => [o.address, o.areaName, o.districtName].filter(Boolean).join(', ');
+export const button = (href: string, label: string) =>
   `<p style="margin:20px 0 4px"><a href="${esc(href)}" style="display:inline-block;background:#1d5b2c;color:#fff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:999px">${esc(label)}</a></p>`;
 
 // ---- The two emails ----
@@ -147,10 +147,10 @@ ${button(link, 'Open the order')}`,
 export async function sendOrderEmails(orderId: number) {
   const d = await load(orderId);
   if (!d) return;
-  const { settings } = await getIntegration('email');
+  const [{ settings }, messages] = await Promise.all([getIntegration('email'), getSettings('messages')]);
   const o = d.order;
 
-  if (o.email) {
+  if (o.email && messages.placed.email) {
     const purpose = `order.placed #${o.number}`;
     if (!(await alreadySent(purpose))) await sendEmail({ to: o.email, ...customerEmail(d), purpose });
   }

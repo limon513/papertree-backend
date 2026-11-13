@@ -86,7 +86,29 @@ export const checkoutSettings = z
 
 export type CheckoutSettings = z.infer<typeof checkoutSettings>;
 
-export const SETTINGS = { store: storeSettings, checkout: checkoutSettings } as const;
+// ---- Messages to customers about their orders ----
+
+/** Order moments a customer can be told about. */
+export const MESSAGE_EVENTS = ['placed', 'confirmed', 'shipped', 'delivered', 'cancelled'] as const;
+export type MessageEvent = (typeof MESSAGE_EVENTS)[number];
+
+const channels = (sms: boolean, email: boolean) =>
+  z.object({ sms: z.boolean().default(sms), email: z.boolean().default(email) }).default({ sms, email });
+
+/** Which messages go out. SMS cost money, so only the ones that matter most are on at first. */
+export const messagesSettings = z
+  .object({
+    placed: channels(false, true),
+    confirmed: channels(true, true),
+    shipped: channels(true, true),
+    delivered: channels(false, true),
+    cancelled: channels(true, true),
+  })
+  .meta({ id: 'MessageSettings' });
+
+export type MessagesSettings = z.infer<typeof messagesSettings>;
+
+export const SETTINGS = { store: storeSettings, checkout: checkoutSettings, messages: messagesSettings } as const;
 export type SettingsKey = keyof typeof SETTINGS;
 
 // ---- Delivery zones ----
@@ -224,5 +246,5 @@ export const checkoutSettingsSchema = z
   .meta({ id: 'CheckoutSettingsView' });
 
 export const settingsResponse = z
-  .object({ store: storeSettingsSchema, checkout: checkoutSettingsSchema, logo: mediaSchema.nullable() })
+  .object({ store: storeSettingsSchema, checkout: checkoutSettingsSchema, messages: messagesSettings, logo: mediaSchema.nullable() })
   .meta({ id: 'Settings' });

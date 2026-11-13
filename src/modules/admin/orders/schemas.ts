@@ -96,6 +96,8 @@ export const statusBody = z
     trackingCode: optionalText(100).optional(),
     /** When delivered: record the unpaid amount as collected by the courier (cash on delivery). */
     collectDue: z.boolean().default(false),
+    /** Tell the customer by SMS / email (as chosen in Settings → Customer messages). */
+    notify: z.boolean().default(true).meta({ description: 'Tell the customer (Settings → Customer messages chooses SMS and/or email). Sent a minute later; skipped if the order moved on by then.' }),
   })
   .meta({ id: 'OrderStatusBody' });
 
@@ -196,6 +198,19 @@ export const orderDetail = z
       z.object({ id: z.number(), method: z.enum(PAYMENT_METHODS), amount: z.number(), reference: z.string().nullable(), note: z.string().nullable(), by: z.string().nullable(), createdAt: z.iso.datetime() }),
     ),
     events: z.array(z.object({ id: z.number(), type: z.string(), message: z.string(), by: z.string().nullable(), createdAt: z.iso.datetime() })),
+    messages: z
+      .array(
+        z.object({
+          id: z.number(),
+          channel: z.enum(['sms', 'email']),
+          purpose: z.string().meta({ example: 'order.shipped #100036' }),
+          to: z.string(),
+          status: z.enum(['sent', 'failed', 'logged']).meta({ description: 'logged: test mode, written down but not sent' }),
+          error: z.string().nullable(),
+          createdAt: z.iso.datetime(),
+        }),
+      )
+      .meta({ description: 'SMS and emails the customer was sent about this order, newest first' }),
     customer: z
       .object({
         id: z.number(),

@@ -20,6 +20,8 @@ const schema = z
       .enum(['true', 'false'])
       .default('true')
       .transform((v) => v === 'true'),
+    /** Seconds before a customer hears that their order moved on: time for staff to undo a wrong click. */
+    ORDER_MESSAGE_DELAY: z.coerce.number().int().min(0).max(3600).default(60),
 
     // Uploaded images: any S3-compatible storage (Neon Object Storage, AWS S3, ...),
     // or the local uploads/ folder when S3 is not set up.
