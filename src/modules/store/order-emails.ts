@@ -26,9 +26,9 @@ export async function load(orderId: number) {
     .where(eq(orders.id, orderId));
   if (!row) return null;
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId)).orderBy(asc(orderItems.position));
-  const [store, images] = await Promise.all([getSettings('store'), imagesById(items.map((i) => i.imageId))]);
+  const [store, images, checkout] = await Promise.all([getSettings('store'), imagesById(items.map((i) => i.imageId)), getSettings('checkout')]);
   const logo = store.logoImageId ? (await imagesById([store.logoImageId])).get(store.logoImageId) : undefined;
-  return { order: row.order, deliveryTime: row.deliveryTime, items, store, images, logoUrl: logo ? (logo.urls['160'] ?? Object.values(logo.urls)[0]) : null };
+  return { order: row.order, deliveryTime: row.deliveryTime, items, store, images, payAdvance: checkout.wholesale.payAdvance, logoUrl: logo ? (logo.urls['160'] ?? Object.values(logo.urls)[0]) : null };
 }
 export type Loaded = NonNullable<Awaited<ReturnType<typeof load>>>;
 
@@ -87,23 +87,58 @@ export const button = (href: string, label: string) =>
 
 // ---- The two emails ----
 
+/**
+ * A wholesale order with an advance still to pay: what to pay, how, and what is left for delivery.
+ * null for retail orders and paid advances.
+ */
+function advanceOf(d: Loaded) {
+  const o = d.order;
+  if (o.type !== 'wholesale') return null;
+  const toPay = Math.max(0, Math.round((o.advanceRequired - o.paidAmount) * 100) / 100);
+  if (toPay <= 0) return null;
+  return { toPay, rest: Math.round((o.total - o.advanceRequired) * 100) / 100, how: d.payAdvance };
+}
+
 function customerEmail(d: Loaded) {
   const o = d.order;
   const first = o.customerName.split(' ')[0] ?? o.customerName;
   const link = o.publicToken ? `${site()}/checkout/thank-you/?o=${encodeURIComponent(o.publicToken)}` : `${site()}/`;
   const place = placeOf(o);
+  const wholesale = o.type === 'wholesale';
+  const adv = advanceOf(d);
+  const kind = wholesale ? 'wholesale order' : 'order';
+  const when = d.deliveryTime ? `, usually in ${d.deliveryTime}` : '';
+  const whenHtml = d.deliveryTime ? `, usually in <strong>${esc(d.deliveryTime)}</strong>` : '';
+  const para = (html: string) => `<p style="margin:0 0 8px;font-size:15px;line-height:1.55">${html}</p>`;
+  // What happens next, and how they pay.
+  const next = adv
+    ? {
+        html:
+          para(`To start, please pay the advance of <strong>${taka(adv.toPay)}</strong>${adv.how ? `: ${esc(adv.how)}` : ''}. Write your order number <strong>#${o.number}</strong> as the reference.`) +
+          para(`We will call you on <strong>${esc(o.phone)}</strong> to confirm. Once the advance arrives we send it to <strong>${esc(place)}</strong>${whenHtml}. The rest, <strong>${taka(adv.rest)}</strong>, is paid on delivery.`),
+        text: [
+          `To start, please pay the advance of ${taka(adv.toPay)}${adv.how ? `: ${adv.how}` : ''}. Write your order number #${o.number} as the reference.`,
+          `We will call you on ${o.phone} to confirm. Once the advance arrives we send it to ${place}${when}. The rest, ${taka(adv.rest)}, is paid on delivery.`,
+        ],
+      }
+    : {
+        html: para(`We will call you on <strong>${esc(o.phone)}</strong> soon to confirm it. Then we send it to <strong>${esc(place)}</strong>${whenHtml}. Pay <strong>${taka(o.total)}</strong> in cash when it arrives.`),
+        text: [`We will call you on ${o.phone} soon to confirm it. Then we send it to ${place}${when}.`],
+      };
+  const totalLabel = wholesale ? 'Total' : 'Total (cash on delivery)';
   const html = layout(
     d,
-    `Thank you, ${first}! Your order #${o.number} is placed.`,
-    `<p style="margin:0 0 8px;font-size:15px;line-height:1.55">We will call you on <strong>${esc(o.phone)}</strong> soon to confirm it. Then we send it to <strong>${esc(place)}</strong>${d.deliveryTime ? `, usually in <strong>${esc(d.deliveryTime)}</strong>` : ''}. Pay <strong>${taka(o.total)}</strong> in cash when it arrives.</p>
-${itemsTable(d)}
+    `Thank you, ${first}! Your ${kind} #${o.number} is placed.`,
+    `${next.html}
+${itemsTable(d, totalLabel)}
+${adv ? `<p style="font-size:14px;margin:4px 0 0">Advance to pay now: <strong>${taka(adv.toPay)}</strong> · On delivery: <strong>${taka(adv.rest)}</strong></p>` : ''}
 ${o.customerNote ? `<p style="font-size:14px;color:#52525b">Your note: ${esc(o.customerNote)}</p>` : ''}
 ${button(link, 'See your order')}
 <p style="font-size:13px;color:#71717a;margin-top:16px">Questions? Reply to this email${d.store.phone ? ` or call ${esc(d.store.phone)}` : ''}.</p>`,
   );
   const text = [
-    `Thank you, ${first}! Your order #${o.number} is placed.`,
-    `We will call you on ${o.phone} soon to confirm it. Then we send it to ${place}${d.deliveryTime ? `, usually in ${d.deliveryTime}` : ''}.`,
+    `Thank you, ${first}! Your ${kind} #${o.number} is placed.`,
+    ...next.text,
     '',
     ...d.items.map((i) => `${i.quantity} × ${i.name}${i.variantLabel ? ` (${i.variantLabel})` : ''}: ${taka(i.lineTotal)}${i.bulkPercent ? ` (${i.bulkPercent}% bulk discount)` : ''}`),
     '',
@@ -111,36 +146,43 @@ ${button(link, 'See your order')}
     ...(o.bulkDiscount ? [`You saved ${taka(o.bulkDiscount)} with bulk discounts`] : []),
     `Delivery: ${o.deliveryFee === 0 ? 'Free' : taka(o.deliveryFee)}`,
     ...(o.couponDiscount ? [`Coupon ${o.couponCode}: −${taka(o.couponDiscount)}`] : []),
-    `Total (cash on delivery): ${taka(o.total)}`,
+    `${totalLabel}: ${taka(o.total)}`,
+    ...(adv ? [`Advance to pay now: ${taka(adv.toPay)} · On delivery: ${taka(adv.rest)}`] : []),
     '',
     `See your order: ${link}`,
   ].join('\n');
-  return { subject: `Order #${o.number} placed: ${taka(o.total)}`, html, text };
+  return { subject: `${wholesale ? 'Wholesale order' : 'Order'} #${o.number} placed: ${taka(o.total)}`, html, text };
 }
 
 function shopEmail(d: Loaded) {
   const o = d.order;
   const link = `${admin()}/orders/${o.id}`;
+  const wholesale = o.type === 'wholesale';
+  const adv = advanceOf(d);
+  const title = `New ${wholesale ? 'wholesale' : 'website'} order #${o.number}: ${taka(o.total)}`;
+  const collect = adv ? `Wholesale: collect the advance of ${taka(adv.toPay)} before sending. The rest, ${taka(adv.rest)}, on delivery.` : null;
   const html = layout(
     d,
-    `New website order #${o.number}: ${taka(o.total)}`,
+    title,
     `<p style="margin:0 0 4px;font-size:15px"><strong>${esc(o.customerName)}</strong> · <a href="tel:${esc(o.phone)}" style="color:#1d5b2c">${esc(o.phone)}</a>${o.email ? ` · ${esc(o.email)}` : ''}</p>
 <p style="margin:0;font-size:14px;color:#52525b">${esc(placeOf(o))}${o.deliveryZoneName ? ` (${esc(o.deliveryZoneName)})` : ''}</p>
+${collect ? `<p style="font-size:14px;background:#ecfdf5;padding:8px 12px;border-radius:8px">${esc(collect)}</p>` : ''}
 ${o.customerNote ? `<p style="font-size:14px;background:#fffbeb;padding:8px 12px;border-radius:8px">Note: ${esc(o.customerNote)}</p>` : ''}
-${itemsTable(d)}
+${itemsTable(d, wholesale ? 'Total' : 'Total (cash on delivery)')}
 ${button(link, 'Open the order')}`,
   );
   const text = [
-    `New website order #${o.number}: ${taka(o.total)}`,
+    title,
     `${o.customerName}, ${o.phone}${o.email ? `, ${o.email}` : ''}`,
     placeOf(o),
+    ...(collect ? [collect] : []),
     ...(o.customerNote ? [`Note: ${o.customerNote}`] : []),
     '',
     ...d.items.map((i) => `${i.quantity} × ${i.name}${i.variantLabel ? ` (${i.variantLabel})` : ''}: ${taka(i.lineTotal)}`),
     '',
     `Open the order: ${link}`,
   ].join('\n');
-  return { subject: `New order #${o.number} · ${taka(o.total)} · ${o.customerName}`, html, text };
+  return { subject: `New ${wholesale ? 'WHOLESALE ' : ''}order #${o.number} · ${taka(o.total)} · ${o.customerName}`, html, text };
 }
 
 /** Sends the order's emails (the background job calls this). */

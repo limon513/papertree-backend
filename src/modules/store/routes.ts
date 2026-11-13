@@ -5,7 +5,7 @@ import { and, asc, eq, gt, isNotNull, isNull, lte, or, sql, type SQL } from 'dri
 import { db } from '../../db/client.ts';
 import { banners, brands, pages, productCategories, productImages, productRequests, products, searchQueries } from '../../db/schema/index.ts';
 import { notFound } from '../../lib/errors.ts';
-import { defaultLocationId } from '../admin/orders/service.ts';
+import { advanceFor, defaultLocationId } from '../admin/orders/service.ts';
 import { AREAS, DISTRICTS, getSettings, listZones, LOCATIONS, quote } from '../admin/settings/service.ts';
 import { activeCategories, cards, CURRENT_PRICE, facets, imagesById, inCategories, LOW_STOCK, SORTS } from './catalog.ts';
 import { cartBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
@@ -448,7 +448,7 @@ storeRouter.post('/cart', async (req, res) => {
       /** How much more for free delivery (null when the zone has no free delivery or it is reached). */
       toFree: !business && zone?.freeAbove && subtotal < zone.freeAbove ? Math.round((zone.freeAbove - subtotal) * 100) / 100 : null,
       /** Why the charge is what it is ("Free delivery for wholesale orders"). */
-      note: business ? q.note : null,
+      note: business ? shopperNote(q.note) : null,
     };
   }
 
@@ -486,18 +486,26 @@ storeRouter.post('/cart', async (req, res) => {
     }
   }
 
-  // A business: its terms (the advance is worked out on the total at checkout).
+  // A business: its terms and the advance.
   const wholesale = terms
     ? {
         advancePercent: terms.advancePercent,
         minOrderAmount: terms.minOrderAmount,
         /** How much more to reach the minimum order (null: reached or none). */
         short: terms.minOrderAmount !== null && subtotal < terms.minOrderAmount ? Math.round((terms.minOrderAmount - subtotal) * 100) / 100 : null,
+        /** Paid before the order is sent, on the total with delivery (null until the place is known). Same rounding as the order. */
+        advance: delivery?.fee != null ? advanceFor(Math.round((subtotal + delivery.fee) * 100) / 100, terms.advancePercent) : null,
         terms: terms.terms,
+        /** How to pay the advance (bKash / Nagad numbers). */
+        payAdvance: terms.payAdvance,
       }
     : null;
   res.json({ lines: shown, itemCount: ok.reduce((s, l) => s + l.quantity, 0), subtotal, bulkSavings, weightKg, delivery, coupon, wholesale });
 });
+
+/** The delivery reason in the shopper's words (the quote speaks to staff). */
+const shopperNote = (note: string | null) =>
+  note === 'The customer pays the courier on delivery' ? 'You pay the courier when it arrives' : note === 'Fixed wholesale delivery charge' ? 'Fixed charge for wholesale orders' : note;
 
 /** The coupon part of a cart check. itemsOff and deliveryOff are already worked out; the total is subtotal − itemsOff + (delivery − deliveryOff). */
 interface StoreCartCoupon {
