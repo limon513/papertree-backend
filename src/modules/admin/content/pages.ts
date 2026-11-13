@@ -19,6 +19,7 @@ export const pagesRouter = Router();
 const RESERVED = new Set([
   'shop', 'cart', 'checkout', 'account', 'search', 'product', 'product-category', 'brand', 'brands', 'categories', 'deals', 'new',
   'sitemap', 'robots', 'api', 'admin', '404', '500', '_astro', 'icons', 'uploads', 'my-account', 'wishlist', 'compare',
+  'wholesale',
 ]);
 
 export const pageBody = z

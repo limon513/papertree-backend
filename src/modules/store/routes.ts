@@ -34,12 +34,13 @@ const and_ = (parts: (SQL | undefined)[]) => {
 // ---- Menus, footer, store details ----
 
 storeRouter.get('/catalog', async (_req, res) => {
-  const [cats, brandRows, store, google, footerPages] = await Promise.all([
+  const [cats, brandRows, store, google, footerPages, checkout] = await Promise.all([
     activeCategories(),
     db.select().from(brands).where(eq(brands.isActive, true)).orderBy(sql`${brands.isFeatured} desc`, asc(sql`lower(${brands.name})`)),
     getSettings('store'),
     getIntegration('google'),
     db.select({ title: pages.title, slug: pages.slug }).from(pages).where(and(eq(pages.isPublished, true), eq(pages.showInFooter, true))).orderBy(asc(pages.sortOrder), asc(pages.id)),
+    getSettings('checkout'),
   ]);
   const g = google.settings;
   const images = await imagesById([...cats.all.map((c) => c.imageId), ...brandRows.map((b) => b.imageId), store.logoImageId]);
@@ -68,6 +69,14 @@ storeRouter.get('/catalog', async (_req, res) => {
     google: g.enabled && g.apiKey && g.authDomain && g.projectId && g.appId ? { apiKey: g.apiKey, authDomain: g.authDomain, projectId: g.projectId, appId: g.appId } : null,
     // Content pages linked in the footer (About, Terms...).
     pages: footerPages,
+    // The shop's wholesale terms, for the Wholesale page (the same ones checkout shows a business).
+    wholesale: {
+      advancePercent: checkout.wholesale.advancePercent,
+      minOrderAmount: checkout.wholesale.minOrderAmount,
+      delivery: checkout.wholesale.delivery,
+      deliveryFee: checkout.wholesale.delivery === 'fixed' ? checkout.wholesale.deliveryFee : null,
+      terms: checkout.wholesale.terms,
+    },
     // Empty categories are hidden.
     categories: (cats.children.get(null) ?? []).filter((c) => cats.count(c.id) > 0).map(node),
     brands: brandRows.map((b) => ({
