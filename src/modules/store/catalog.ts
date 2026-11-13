@@ -102,10 +102,13 @@ export function cardsCte(locationId: number) {
     )`;
 }
 
-/** Brands and the price range among products that match `where` (which must not filter by brand or price). */
-export async function facets(where: SQL) {
+/**
+ * Brands and the price range among products that match `where` (which must not filter by brand or
+ * price), and tags among those that match `tagWhere` (which must not filter by tag).
+ */
+export async function facets(where: SQL, tagWhere: SQL = where) {
   const locationId = await defaultLocationId();
-  const [{ rows: brandRows }, { rows: priceRows }] = await Promise.all([
+  const [{ rows: brandRows }, { rows: priceRows }, { rows: tagRows }] = await Promise.all([
     db.execute<{ slug: string; name: string; n: string }>(sql`
       ${cardsCte(locationId)}
       select c.brand_slug as slug, c.brand_name as name, count(*) as n from cards c
@@ -113,13 +116,47 @@ export async function facets(where: SQL) {
     db.execute<{ min: string | null; max: string | null }>(sql`
       ${cardsCte(locationId)}
       select min(c.current_price) as min, max(c.current_price) as max from cards c where ${where}`),
+    db.execute<{ slug: string; name: string; color: string; n: string }>(sql`
+      ${cardsCte(locationId)}
+      select l.slug, l.name, l.color, count(*) as n from cards c
+      join product_labels pl on pl.product_id = c.id join labels l on l.id = pl.label_id
+      where ${tagWhere} and l.is_active group by l.id order by l.sort_order, lower(l.name)`),
   ]);
   const price = priceRows[0];
   return {
     brands: brandRows.map((b) => ({ slug: b.slug, name: b.name, count: Number(b.n) })),
+    tags: tagRows.map((t) => ({ slug: t.slug, name: t.name, color: t.color, count: Number(t.n) })),
     price: price?.min === null || !price ? null : { min: Math.floor(Number(price.min)), max: Math.ceil(Number(price.max)) },
   };
 }
+
+/** A tag as the website shows it. */
+export interface PublicLabel {
+  name: string;
+  slug: string;
+  color: string;
+}
+
+/** Products' tags. `cardsOnly`: just those shown on cards (the product page shows all). Active tags only. */
+export async function cardTags(productIds: number[], cardsOnly = true) {
+  const map = new Map<number, PublicLabel[]>();
+  if (!productIds.length) return map;
+  const { rows } = await db.execute<{ product_id: string; name: string; slug: string; color: string }>(sql`
+    select pl.product_id, l.name, l.slug, l.color from product_labels pl join labels l on l.id = pl.label_id
+    where l.is_active ${cardsOnly ? sql`and l.show_on_cards` : sql``} and pl.product_id in (${sql.join(productIds.map((id) => sql`${id}`), sql`, `)})
+    order by l.sort_order, lower(l.name)`);
+  for (const r of rows) {
+    const list = map.get(Number(r.product_id)) ?? [];
+    list.push({ name: r.name, slug: r.slug, color: r.color });
+    map.set(Number(r.product_id), list);
+  }
+  return map;
+}
+
+/** Products with any of these tags (slugs). */
+export const withTags = (slugs: string[]) =>
+  sql`exists (select 1 from product_labels pl join labels l on l.id = pl.label_id
+    where pl.product_id = c.id and l.is_active and l.slug in (${sql.join(slugs.map((x) => sql`${x}`), sql`, `)}))`;
 
 /** Every list puts products that can be bought first, then this order (see cardsQuery). */
 export const SORTS = {
@@ -138,6 +175,7 @@ export async function cards(where: SQL, order: SQL, limit: number, offset = 0) {
   const { rows } = await db.execute<CardRow & { total_count: string }>(cardsQuery(locationId, where, order, limit, offset));
   // Up to 3 more pictures per product, shown when the card is pointed at (only for this page's products).
   const ids = rows.map((r) => Number(r.id));
+  const tagsOf = cardTags(ids);
   const { rows: extra } = ids.length
     ? await db.execute<{ product_id: string; media_id: string }>(sql`
         select x.product_id, x.media_id from (
@@ -146,6 +184,7 @@ export async function cards(where: SQL, order: SQL, limit: number, offset = 0) {
         ) x where x.n between 2 and 4 order by x.product_id, x.n`)
     : { rows: [] };
   const images = await imagesById([...rows.map((r) => (r.image_id ? Number(r.image_id) : null)), ...extra.map((e) => Number(e.media_id))]);
+  const tags = await tagsOf;
   const moreOf = (productId: number) =>
     extra.filter((e) => Number(e.product_id) === productId).flatMap((e) => images.get(Number(e.media_id)) ?? []);
   let total = rows.length ? Number(rows[0]!.total_count) : 0;
@@ -176,6 +215,8 @@ export async function cards(where: SQL, order: SQL, limit: number, offset = 0) {
         inStock: r.in_stock,
         lowStock: r.in_stock && stockLeft !== null && stockLeft <= LOW_STOCK ? stockLeft : null,
         isNew: r.is_new,
+        /** Website tags shown on cards ("Overseas"). */
+        labels: tags.get(Number(r.id)) ?? [],
       };
     }),
   };

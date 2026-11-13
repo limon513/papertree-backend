@@ -13,7 +13,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { adminUsers } from './admin.ts';
-import { brands, categories } from './catalog.ts';
+import { brands, categories, labels } from './catalog.ts';
 import { media } from './media.ts';
 import { id, ref, timestamps, timestamptz } from './_helpers.ts';
 
@@ -197,4 +197,18 @@ export const inventoryMovements = pgTable(
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [index('inventory_movements_variant_id_idx').on(t.variantId, t.createdAt)],
+);
+
+/** Tags (labels) on a product. */
+export const productLabels = pgTable(
+  'product_labels',
+  {
+    productId: ref('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    labelId: ref('label_id')
+      .notNull()
+      .references(() => labels.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.productId, t.labelId] }), index('product_labels_label_id_idx').on(t.labelId)],
 );

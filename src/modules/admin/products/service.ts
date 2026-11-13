@@ -7,6 +7,8 @@ import {
   inventoryMovements,
   media,
   productCategories,
+  productLabels,
+  labels,
   productImages,
   products,
   productVariants,
@@ -25,7 +27,7 @@ export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /** The full product as the edit form needs it. */
 export async function getProduct(id: number) {
   // All in parallel: each query is a round trip to the database.
-  const [[product], cats, images, variants, levels] = await Promise.all([
+  const [[product], cats, images, variants, levels, tagRows] = await Promise.all([
     db.select().from(products).where(eq(products.id, id)).limit(1),
     db.select().from(productCategories).where(eq(productCategories.productId, id)),
     db
@@ -40,6 +42,7 @@ export async function getProduct(id: number) {
       .from(inventoryLevels)
       .innerJoin(productVariants, eq(productVariants.id, inventoryLevels.variantId))
       .where(eq(productVariants.productId, id)),
+    db.select({ labelId: productLabels.labelId }).from(productLabels).where(eq(productLabels.productId, id)),
   ]);
   if (!product) throw notFound('Product not found');
 
@@ -48,6 +51,7 @@ export async function getProduct(id: number) {
     ...product,
     categoryIds: cats.map((c) => c.categoryId),
     primaryCategoryId: primary?.categoryId ?? null,
+    labelIds: tagRows.map((t) => t.labelId),
     images: images.map((r) => mediaView(r.media)),
     variants: (await withImages(variants)).map((v) => ({
       ...v,
@@ -70,6 +74,12 @@ async function checkInput(input: ProductInput, productId?: number) {
     if (found.length !== input.categoryIds.length) {
       throw badRequest('A chosen category no longer exists', { categoryIds: 'A chosen category no longer exists' });
     }
+  }
+
+  const labelIds = [...new Set(input.labelIds ?? [])];
+  if (labelIds.length) {
+    const found = await db.select({ id: labels.id }).from(labels).where(inArray(labels.id, labelIds));
+    if (found.length !== labelIds.length) throw badRequest('A chosen tag no longer exists', { labelIds: 'A chosen tag no longer exists' });
   }
 
   const mediaIds = [...new Set([...input.imageIds, ...input.variants.flatMap((v) => (v.imageId ? [v.imageId] : []))])];
@@ -188,6 +198,10 @@ export async function bulkUpdate(input: ProductBulkInput) {
     const [category] = await db.select({ id: categories.id }).from(categories).where(eq(categories.id, input.categoryId));
     if (!category) throw badRequest('This category no longer exists', { categoryId: 'This category no longer exists' });
   }
+  if (input.action === 'add-label' || input.action === 'remove-label') {
+    const [label] = await db.select({ id: labels.id }).from(labels).where(eq(labels.id, input.labelId));
+    if (!label) throw badRequest('This tag no longer exists', { labelId: 'This tag no longer exists' });
+  }
   if (input.action === 'set-brand' && input.brandId !== null) {
     const [brand] = await db.select({ id: brands.id }).from(brands).where(eq(brands.id, input.brandId));
     if (!brand) throw badRequest('This brand no longer exists', { brandId: 'This brand no longer exists' });
@@ -250,6 +264,25 @@ export async function bulkUpdate(input: ProductBulkInput) {
               .where(and(eq(productCategories.productId, productId), eq(productCategories.categoryId, next.categoryId)));
           }
         }
+        if (rows.length) await touch(tx, rows.map((r) => r.productId));
+        return rows.length;
+      }
+      case 'add-label': {
+        const found = await tx.select({ id: products.id }).from(products).where(inArray(products.id, ids));
+        if (!found.length) return 0;
+        const rows = await tx
+          .insert(productLabels)
+          .values(found.map((p) => ({ productId: p.id, labelId: input.labelId })))
+          .onConflictDoNothing()
+          .returning({ productId: productLabels.productId });
+        if (rows.length) await touch(tx, rows.map((r) => r.productId));
+        return rows.length;
+      }
+      case 'remove-label': {
+        const rows = await tx
+          .delete(productLabels)
+          .where(and(inArray(productLabels.productId, ids), eq(productLabels.labelId, input.labelId)))
+          .returning({ productId: productLabels.productId });
         if (rows.length) await touch(tx, rows.map((r) => r.productId));
         return rows.length;
       }
@@ -347,6 +380,13 @@ export async function saveProduct(input: ProductInput, adminUserId: number | nul
         .values(input.categoryIds.map((categoryId) => ({ productId: id, categoryId, isPrimary: categoryId === primary })));
     }
 
+    // Website tags: replace, when given.
+    if (input.labelIds !== undefined) {
+      await tx.delete(productLabels).where(eq(productLabels.productId, id));
+      const tagIds = [...new Set(input.labelIds)];
+      if (tagIds.length) await tx.insert(productLabels).values(tagIds.map((labelId) => ({ productId: id, labelId })));
+    }
+
     // Gallery: replace, in the given order.
     await tx.delete(productImages).where(eq(productImages.productId, id));
     if (input.imageIds.length) {
@@ -420,6 +460,7 @@ export async function duplicateProduct(id: number, adminUserId: number | null) {
       brandId: p.brandId,
       categoryIds: p.categoryIds,
       primaryCategoryId: p.primaryCategoryId,
+      labelIds: p.labelIds,
       tags: p.tags,
       imageIds: p.images.map((i) => i.id),
       options: p.options,

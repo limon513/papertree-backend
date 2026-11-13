@@ -1,6 +1,7 @@
 import { createDocument } from 'zod-openapi';
 import { authDocs } from '../modules/admin/auth/docs.ts';
 import { brandsDocs } from '../modules/admin/brands/docs.ts';
+import { labelsDocs } from '../modules/admin/labels/docs.ts';
 import { categoriesDocs } from '../modules/admin/categories/docs.ts';
 import { importsDocs } from '../modules/admin/imports/docs.ts';
 import { mediaDocs } from '../modules/admin/media/docs.ts';
@@ -46,6 +47,7 @@ export function buildOpenApiDocument() {
       ...rolesDocs,
       ...categoriesDocs,
       ...brandsDocs,
+      ...labelsDocs,
       ...mediaDocs,
       ...productsDocs,
       ...importsDocs,
