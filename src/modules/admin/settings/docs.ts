@@ -69,7 +69,7 @@ export const settingsDocs: ZodOpenApiPathsObject = {
       security,
       summary: 'Example SMS for each order step',
       description: `${access} Made-up order, the shop's own name and phone. Plain English letters, at most 160 (one SMS).`,
-      responses: { '200': json(z.record(z.enum(MESSAGE_EVENTS), z.string())), ...errors(401, 403) },
+      responses: { '200': json(z.record(z.enum([...MESSAGE_EVENTS, 'businessApproved']), z.string())), ...errors(401, 403) },
     },
   },
   '/v1/admin/store-info': {

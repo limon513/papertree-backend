@@ -3,6 +3,8 @@ import { and, asc, count, desc, eq, ilike, isNotNull, ne, or, sql, type SQL } fr
 import { db } from '../../../db/client.ts';
 import { customerAddresses, customers, orders } from '../../../db/schema/index.ts';
 import { audit } from '../../../lib/audit.ts';
+import { logger } from '../../../lib/logger.ts';
+import { tellApproved } from '../../store/account/business.ts';
 import { badRequest, conflict, notFound } from '../../../lib/errors.ts';
 import { parseId } from '../../../lib/ids.ts';
 import { normalizePhone } from '../../../lib/phone.ts';
@@ -216,6 +218,11 @@ customersRouter.put('/:id/business', async (req, res) => {
     .set({ type: input.status === 'approved' ? 'business' : before.type, businessStatus: input.status, wholesaleTerms: terms })
     .where(eq(customers.id, id));
   await audit(req, { action: 'customer.business', entityType: 'customer', entityId: id, before, after: { ...input, terms } });
+  // Newly approved: tell them (in the background; a message problem never undoes the approval).
+  if (input.status === 'approved' && before.businessStatus !== 'approved') {
+    const [after] = await db.select().from(customers).where(eq(customers.id, id));
+    void tellApproved(after!).catch((err) => logger.error({ err, customer: id }, 'Could not tell the business it was approved'));
+  }
   res.json(await customerView(id));
 });
 

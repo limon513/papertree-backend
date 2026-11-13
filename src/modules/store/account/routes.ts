@@ -17,6 +17,7 @@ import { addressBody, codeBody, googleBody, profileBody, verifyBody } from './sc
 import { addAddress, deleteAddress, makeDefaultAddress, updateAddress } from '../../admin/customers/service.ts';
 import { parseId } from '../../../lib/ids.ts';
 import { currentCustomer, customerView, signIn, signOut } from './session.ts';
+import { applyForBusiness, businessApplyBody } from './business.ts';
 
 /** Website sign-in (phone code or Google) and the shopper's own account. Mounted at /v1/store. */
 export const accountRouter = Router();
@@ -252,6 +253,14 @@ accountRouter.patch('/me', async (req, res) => {
   const input = profileBody.parse(req.body);
   await db.update(customers).set(input).where(eq(customers.id, c.id));
   res.json({ customer: await viewOf(c.id) });
+});
+
+/** Ask for a business (wholesale) account. Staff call, then approve it. */
+accountRouter.post('/me/business', async (req, res) => {
+  const c = await signedIn(req);
+  const input = businessApplyBody.parse(req.body);
+  const row = await applyForBusiness(c, input);
+  res.json({ customer: await customerView(row) });
 });
 
 // ---- Saved addresses: each change answers with the updated account ----

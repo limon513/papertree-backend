@@ -6,6 +6,7 @@ import { audit } from '../../../lib/audit.ts';
 import { badRequest, conflict, notFound } from '../../../lib/errors.ts';
 import { parseId } from '../../../lib/ids.ts';
 import { currentAdmin } from '../../../middleware/admin-auth.ts';
+import { approvedSms } from '../../store/account/business.ts';
 import { sampleSms } from '../../store/order-updates.ts';
 import { checkImageId, withImage } from '../media/view.ts';
 import { quoteBody, SETTINGS, stockLocationBody, zoneBody, type SettingsKey, type ZoneInput } from './schemas.ts';
@@ -22,7 +23,8 @@ settingsRouter.get('/', async (_req, res) => {
 
 /** Example SMS for each order step, with the shop's own name and phone (Settings → Customer messages). */
 settingsRouter.get('/messages/samples', async (_req, res) => {
-  res.json(sampleSms(await getSettings('store')));
+  const store = await getSettings('store');
+  res.json({ ...sampleSms(store), businessApproved: approvedSms(store.name) });
 });
 
 for (const key of Object.keys(SETTINGS) as SettingsKey[]) {

@@ -5,6 +5,9 @@ import { id, ref, timestamps, timestamptz } from './_helpers.ts';
 export type CustomerType = 'retail' | 'business';
 /** A business account asks for wholesale prices; staff approve it. */
 export type BusinessStatus = 'pending' | 'approved' | 'rejected';
+/** What kind of business asks for wholesale prices. */
+export const BUSINESS_TYPES = ['shop', 'school', 'office', 'other'] as const;
+export type BusinessType = (typeof BUSINESS_TYPES)[number];
 export type WholesaleDeliveryRule = 'retail' | 'fixed' | 'free' | 'paid_on_delivery';
 
 /** A business's own wholesale terms. Empty fields use the shop's terms (Settings > Payments & wholesale). */
@@ -32,6 +35,10 @@ export const customers = pgTable(
     businessName: text('business_name'),
     businessStatus: text('business_status').$type<BusinessStatus>(),
     tradeLicense: text('trade_license'),
+    /** From the website's business sign-up. */
+    businessType: text('business_type').$type<BusinessType>(),
+    businessAddress: text('business_address'),
+    businessAppliedAt: timestamptz('business_applied_at'),
     /** null = the shop's wholesale terms. */
     wholesaleTerms: jsonb('wholesale_terms').$type<WholesaleTerms>(),
     /** Blocked customers cannot order on the website (e.g. fake cash-on-delivery orders). */
