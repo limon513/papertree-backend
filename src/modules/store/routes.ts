@@ -16,6 +16,7 @@ import { storeOrdersRouter } from './orders.ts';
 import { accountRouter } from './account/routes.ts';
 import { storeSeoRouter } from './seo.ts';
 import { getIntegration } from '../admin/integrations/service.ts';
+import { businessOf, termsOf, WHOLESALE_PRICE, wholesaleRouter } from './wholesale.ts';
 
 /** Public API for the website. Mounted at /v1/store. Shoppers may sign in (account routes). */
 export const storeRouter = Router();
@@ -264,6 +265,8 @@ storeRouter.get('/products/:slug', async (req, res) => {
       sku: string | null;
       price: string;
       cur: string;
+      /** Lower for businesses (never sent: only whether there is one). */
+      cheaper_wholesale: boolean;
       // Raw queries give timestamps as text.
       sale_ends_at: string | null;
       weight_grams: number | null;
@@ -272,7 +275,8 @@ storeRouter.get('/products/:slug', async (req, res) => {
       allow_backorder: boolean;
       qty: number;
     }>(sql`
-      select v.id, v.option1, v.option2, v.option3, v.sku, v.price, ${CURRENT_PRICE} as cur, v.sale_ends_at, v.weight_grams,
+      select v.id, v.option1, v.option2, v.option3, v.sku, v.price, ${CURRENT_PRICE} as cur,
+        coalesce(v.wholesale_price < ${CURRENT_PRICE}, false) as cheaper_wholesale, v.sale_ends_at, v.weight_grams,
         v.image_id, v.track_stock, v.allow_backorder, coalesce(il.quantity, 0) as qty
       from product_variants v
       left join inventory_levels il on il.variant_id = v.id and il.location_id = ${locationId}
@@ -312,6 +316,8 @@ storeRouter.get('/products/:slug', async (req, res) => {
     seoDescription: product.seoDescription,
     images: gallery.map((g) => images.get(g.mediaId)).filter(Boolean),
     categoryPath: path,
+    /** Businesses pay less for it (the price itself is only for approved business accounts). */
+    hasWholesale: variants.some((v) => v.cheaper_wholesale),
     variants: variants.map((v) => {
       const price = Number(v.cur);
       const regular = Number(v.price);
@@ -344,6 +350,8 @@ storeRouter.get('/products/:slug', async (req, res) => {
 storeRouter.post('/cart', async (req, res) => {
   const input = cartBody.parse(req.body);
   const locationId = await defaultLocationId();
+  // An approved business: wholesale prices and terms, no bulk discounts or coupons (as staff wholesale orders).
+  const business = await businessOf(req);
   const ids = input.items.map((i) => i.variantId);
   const { rows } = ids.length
     ? await db.execute<{
@@ -358,6 +366,7 @@ storeRouter.post('/cart', async (req, res) => {
         option3: string | null;
         price: string;
         cur: string;
+        wholesale: string;
         weight_grams: number | null;
         track_stock: boolean;
         allow_backorder: boolean;
@@ -366,7 +375,7 @@ storeRouter.post('/cart', async (req, res) => {
         bulk: ProductBulk;
       }>(sql`
         select v.id, p.id as product_id, p.slug, p.name, p.status, p.options, p.bulk_discount as bulk, v.option1, v.option2, v.option3, v.price,
-          ${CURRENT_PRICE} as cur, v.weight_grams, v.track_stock, v.allow_backorder, coalesce(il.quantity, 0) as qty,
+          ${CURRENT_PRICE} as cur, ${WHOLESALE_PRICE} as wholesale, v.weight_grams, v.track_stock, v.allow_backorder, coalesce(il.quantity, 0) as qty,
           coalesce(v.image_id, (select pi.media_id from product_images pi where pi.product_id = p.id order by pi.position limit 1)) as image_id
         from product_variants v join products p on p.id = v.product_id
         left join inventory_levels il on il.variant_id = v.id and il.location_id = ${locationId}
@@ -379,7 +388,9 @@ storeRouter.post('/cart', async (req, res) => {
     const v = byId.get(item.variantId);
     if (!v || v.status !== 'active') return { variantId: item.variantId, quantity: item.quantity, problem: 'gone' as const };
     // Same rule as the product cards, worked out by the database.
-    const price = Number(v.cur);
+    const price = business ? Number(v.wholesale) : Number(v.cur);
+    // Crossed out: the normal price (retail), or for a business the retail price today.
+    const was = business ? Number(v.cur) : Number(v.price);
     const limited = v.track_stock && !v.allow_backorder;
     const available = limited ? Math.max(0, v.qty) : null;
     const quantity = available === null ? item.quantity : Math.min(item.quantity, available);
@@ -391,7 +402,7 @@ storeRouter.post('/cart', async (req, res) => {
       variantLabel: [v.option1, v.option2, v.option3].filter(Boolean).join(' / ') || null,
       image: v.image_id ? (images.get(Number(v.image_id)) ?? null) : null,
       price,
-      regularPrice: Number(v.price) > price ? Number(v.price) : null,
+      regularPrice: was > price ? was : null,
       quantity,
       maxQuantity: available,
       weightGrams: v.weight_grams,
@@ -401,7 +412,9 @@ storeRouter.post('/cart', async (req, res) => {
   });
 
   // Bulk discounts: worked out on what can be ordered, the same way as when the order is placed.
-  const checkout = await getSettings('checkout');
+  const shop = await getSettings('checkout');
+  const terms = business ? await termsOf(business) : null;
+  const checkout = terms ? { ...shop, wholesale: terms, bulk: { ...shop.bulk, enabled: false } } : shop;
   const priced = lines.filter((l): l is Extract<typeof l, { price: number }> => 'price' in l && l.quantity > 0);
   const bulk = applyBulk(
     priced.map((l) => ({ productId: l.productId, quantity: l.quantity, price: l.price, onSale: l.regularPrice !== null })),
@@ -425,7 +438,7 @@ storeRouter.post('/cart', async (req, res) => {
   if (input.districtId && DISTRICTS.has(input.districtId)) {
     const areaId = input.areaId && AREAS.get(input.areaId)?.districtId === input.districtId ? input.areaId : null;
     const zones = await listZones();
-    const q = quote(zones, checkout, { districtId: input.districtId, areaId, subtotal, weightKg, wholesale: false });
+    const q = quote(zones, checkout, { districtId: input.districtId, areaId, subtotal, weightKg, wholesale: !!business });
     const zone = zones.find((z) => z.id === q.zone?.id);
     delivery = {
       zone: q.zone?.name ?? null,
@@ -433,7 +446,9 @@ storeRouter.post('/cart', async (req, res) => {
       fee: q.fee,
       freeAbove: zone?.freeAbove ?? null,
       /** How much more for free delivery (null when the zone has no free delivery or it is reached). */
-      toFree: zone?.freeAbove && subtotal < zone.freeAbove ? Math.round((zone.freeAbove - subtotal) * 100) / 100 : null,
+      toFree: !business && zone?.freeAbove && subtotal < zone.freeAbove ? Math.round((zone.freeAbove - subtotal) * 100) / 100 : null,
+      /** Why the charge is what it is ("Free delivery for wholesale orders"). */
+      note: business ? q.note : null,
     };
   }
 
@@ -442,7 +457,9 @@ storeRouter.post('/cart', async (req, res) => {
   // shopper gets them now and everyone else when placing the order).
   let coupon: StoreCartCoupon | null = null;
   const code = input.couponCode ? cleanCode(input.couponCode) : '';
-  if (code) {
+  if (code && business) {
+    coupon = { code, ok: false, message: 'Coupons are for retail orders. Your wholesale prices are already lower.', short: null, itemsOff: 0, deliveryOff: 0, label: null, checkedAtOrder: false };
+  } else if (code) {
     if (!codeGuard.allowed(req.ip)) {
       coupon = { code, ok: false, message: 'Too many wrong codes. Please wait a few minutes and try again.', short: null, itemsOff: 0, deliveryOff: 0, label: null, checkedAtOrder: false };
     } else {
@@ -469,7 +486,17 @@ storeRouter.post('/cart', async (req, res) => {
     }
   }
 
-  res.json({ lines: shown, itemCount: ok.reduce((s, l) => s + l.quantity, 0), subtotal, bulkSavings, weightKg, delivery, coupon });
+  // A business: its terms (the advance is worked out on the total at checkout).
+  const wholesale = terms
+    ? {
+        advancePercent: terms.advancePercent,
+        minOrderAmount: terms.minOrderAmount,
+        /** How much more to reach the minimum order (null: reached or none). */
+        short: terms.minOrderAmount !== null && subtotal < terms.minOrderAmount ? Math.round((terms.minOrderAmount - subtotal) * 100) / 100 : null,
+        terms: terms.terms,
+      }
+    : null;
+  res.json({ lines: shown, itemCount: ok.reduce((s, l) => s + l.quantity, 0), subtotal, bulkSavings, weightKg, delivery, coupon, wholesale });
 });
 
 /** The coupon part of a cart check. itemsOff and deliveryOff are already worked out; the total is subtotal − itemsOff + (delivery − deliveryOff). */
@@ -491,4 +518,5 @@ interface StoreCartCoupon {
 
 storeRouter.use('/orders', storeOrdersRouter);
 storeRouter.use(accountRouter);
+storeRouter.use(wholesaleRouter);
 storeRouter.use(storeSeoRouter);

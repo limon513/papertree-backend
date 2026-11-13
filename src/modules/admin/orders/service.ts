@@ -164,6 +164,8 @@ export function priceLines(type: OrderType, lines: (OrderLineIn & { index: numbe
 export interface OrderContext {
   /** A signed-in shopper (website). */
   customerId?: number | null;
+  /** Website wholesale orders: the business's minimum order must be reached (staff may go below it). */
+  enforceMinimum?: boolean;
   /** The order being edited: its coupon is kept (no new use counted) while the items still qualify. */
   existing?: { id: number; couponId: number | null; couponCode: string | null; customerId: number | null } | null;
 }
@@ -231,10 +233,17 @@ async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = ne
 
   const [zones, [customer]] = await Promise.all([
     listZones(),
-    tx.select().from(customers).where(eq(customers.phone, input.customer.phone)),
+    // A signed-in shopper's own account (its terms), whatever phone this delivery uses; else by phone.
+    ctx.customerId
+      ? tx.select().from(customers).where(eq(customers.id, ctx.customerId))
+      : tx.select().from(customers).where(eq(customers.phone, input.customer.phone)),
   ]);
   // A business with its own terms (advance, delivery) gets them on its wholesale orders.
   const checkout = { ...shop, wholesale: wholesaleTermsFor(customer, shop.wholesale) };
+  const minimum = checkout.wholesale.minOrderAmount;
+  if (input.type === 'wholesale' && ctx.enforceMinimum && minimum !== null && subtotal < minimum) {
+    throw new AppError(409, 'BELOW_MINIMUM', `Wholesale orders start at ${taka(minimum)}. Please add ${taka(round(minimum - subtotal))} more.`);
+  }
   const delivery = quote(zones, checkout, {
     districtId: input.districtId,
     areaId: input.areaId,
@@ -359,13 +368,15 @@ export interface CreateOrderExtras {
   requestId?: string;
   /** Website orders from a signed-in shopper: the order is theirs, whatever phone is given. */
   customerId?: number;
+  /** Website wholesale orders: refuse an order below the business's minimum. */
+  enforceMinimum?: boolean;
 }
 
 /** Places an order. `adminUserId` is null for orders from the website. */
 export async function createOrder(input: OrderInput, adminUserId: number | null, extras: CreateOrderExtras = {}) {
   return db.transaction(async (tx) => {
     const locationId = input.locationId ?? (await defaultLocationId(tx));
-    const built = await build(tx, input, locationId, undefined, { customerId: extras.customerId ?? null });
+    const built = await build(tx, input, locationId, undefined, { customerId: extras.customerId ?? null, enforceMinimum: extras.enforceMinimum });
     if (extras.expectedTotal !== undefined && Math.abs(extras.expectedTotal - built.values.total) > 0.009) {
       throw new AppError(409, 'PRICE_CHANGED', `Prices changed: the total is now ${taka(built.values.total)}. Please check your order and place it again.`);
     }
@@ -419,6 +430,8 @@ export async function updateOrder(id: number, input: OrderInput, adminUserId: nu
     }
     const built = await build(tx, input, locationId, held, {
       existing: { id: order.id, couponId: order.couponId, couponCode: order.couponCode, customerId: order.customerId },
+      // Same phone: it stays that customer's order, with its terms (a business order sent to its manager's phone).
+      customerId: order.phone === input.customer.phone ? order.customerId : null,
     });
 
     // Give back what the old lines took, take what the new lines need.
