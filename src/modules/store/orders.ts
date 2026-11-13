@@ -11,6 +11,7 @@ import { codeGuard, CouponError, tooManyTries } from '../admin/coupons/service.t
 import { createOrder } from '../admin/orders/service.ts';
 import { currentCustomer, signIn } from './account/session.ts';
 import { imagesById } from './catalog.ts';
+import { isApprovedBusiness } from '../admin/customers/service.ts';
 import { checkoutBody } from './schemas.ts';
 
 /** Orders from the website. Mounted at /v1/store/orders. */
@@ -59,11 +60,13 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
   if (byPhone?.isBlocked) throw forbidden('We cannot take this order on the website. Please call us to order.');
   // Too many wrong codes from this connection: codes are not even looked up for a while.
   if (couponCode && !codeGuard.allowed(req.ip)) throw tooManyTries();
+  // An approved business (signed in) orders at wholesale prices and terms; everyone else retail.
+  const wholesale = !!me && isApprovedBusiness(me);
   try {
     const order = await createOrder(
       {
         ...rest,
-        type: 'retail',
+        type: wholesale ? 'wholesale' : 'retail',
         channel: 'website',
         paymentMethod,
         customer: { name, phone, email },
@@ -74,7 +77,7 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
         couponCode: couponCode || null,
       },
       null,
-      { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url'), customerId: me?.id },
+      { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url'), customerId: me?.id, enforceMinimum: wholesale },
     );
     // A first order from a new number signs them in, so the next order is quicker. Such a sign-in ends
     // as soon as someone confirms that number with a code.
