@@ -1,14 +1,18 @@
 import { Router } from 'express';
 import { and, asc, count, desc, eq, gte, ilike, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { env } from '../../../config/env.ts';
 import { db } from '../../../db/client.ts';
 import { adminUsers, customerAddresses, customers, orderEvents, orderItems, orderPayments, orders, products, productVariants } from '../../../db/schema/index.ts';
+import { QUEUES, sendJob } from '../../../jobs/boss.ts';
 import { audit } from '../../../lib/audit.ts';
 import { badRequest, notFound } from '../../../lib/errors.ts';
 import { parseId } from '../../../lib/ids.ts';
+import { logger } from '../../../lib/logger.ts';
 import { normalizePhone } from '../../../lib/phone.ts';
 import { currentAdmin } from '../../../middleware/admin-auth.ts';
 import { addressView, isApprovedBusiness } from '../customers/service.ts';
 import { cleanCode, CouponError } from '../coupons/service.ts';
+import { ORDER_UPDATES, orderMessagesOf } from '../../store/order-updates.ts';
 import { withImages } from '../media/view.ts';
 import { quoteBody } from '../settings/schemas.ts';
 import { DISTRICTS, getSettings, listZones, quote } from '../settings/service.ts';
@@ -254,7 +258,7 @@ async function orderView(id: number) {
   const [order] = await db.select().from(orders).where(eq(orders.id, id));
   if (!order) throw notFound('Order not found');
 
-  const [items, payments, events, customer] = await Promise.all([
+  const [items, payments, events, customer, messages] = await Promise.all([
     db.select().from(orderItems).where(eq(orderItems.orderId, id)).orderBy(asc(orderItems.position)),
     db
       .select({
@@ -290,6 +294,7 @@ async function orderView(id: number) {
           .from(customers)
           .where(eq(customers.id, order.customerId))
       : Promise.resolve([]),
+    orderMessagesOf(order.number),
   ]);
 
   const [createdBy] = order.createdBy
@@ -303,6 +308,8 @@ async function orderView(id: number) {
     items: (await withImages(items)).map(({ imageId: _imageId, stockTaken: _stockTaken, orderId: _orderId, ...i }) => i),
     payments,
     events,
+    /** SMS and emails the customer was sent about this order. */
+    messages,
     customer: customer[0] ?? null,
   };
 }
@@ -331,7 +338,14 @@ ordersRouter.post('/:id/status', async (req, res) => {
   const id = parseId(req.params.id);
   const input = statusBody.parse(req.body);
   await setStatus(id, input, currentAdmin(req).id);
-  await audit(req, { action: 'order.status', entityType: 'order', entityId: id, after: { status: input.status } });
+  const notify = input.notify && (ORDER_UPDATES as readonly string[]).includes(input.status);
+  await audit(req, { action: 'order.status', entityType: 'order', entityId: id, after: { status: input.status, notify } });
+  if (notify) {
+    // A minute later, so a wrong click can be undone before the customer hears of it.
+    sendJob(QUEUES.orderStatus, { orderId: id, status: input.status }, { startAfter: env.ORDER_MESSAGE_DELAY }).catch((err) =>
+      logger.error({ err, order: id }, 'Could not queue the customer message'),
+    );
+  }
   res.json(await orderView(id));
 });
 

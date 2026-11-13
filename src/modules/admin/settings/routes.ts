@@ -6,6 +6,7 @@ import { audit } from '../../../lib/audit.ts';
 import { badRequest, conflict, notFound } from '../../../lib/errors.ts';
 import { parseId } from '../../../lib/ids.ts';
 import { currentAdmin } from '../../../middleware/admin-auth.ts';
+import { sampleSms } from '../../store/order-updates.ts';
 import { checkImageId, withImage } from '../media/view.ts';
 import { quoteBody, SETTINGS, stockLocationBody, zoneBody, type SettingsKey, type ZoneInput } from './schemas.ts';
 import { AREAS, DISTRICTS, getSettings, listZones, LOCATIONS, quote, saveSettings } from './service.ts';
@@ -14,9 +15,14 @@ import { AREAS, DISTRICTS, getSettings, listZones, LOCATIONS, quote, saveSetting
 export const settingsRouter = Router();
 
 settingsRouter.get('/', async (_req, res) => {
-  const [store, checkout] = await Promise.all([getSettings('store'), getSettings('checkout')]);
+  const [store, checkout, messages] = await Promise.all([getSettings('store'), getSettings('checkout'), getSettings('messages')]);
   const { image: logo } = await withImage({ imageId: store.logoImageId });
-  res.json({ store, checkout, logo });
+  res.json({ store, checkout, messages, logo });
+});
+
+/** Example SMS for each order step, with the shop's own name and phone (Settings → Customer messages). */
+settingsRouter.get('/messages/samples', async (_req, res) => {
+  res.json(sampleSms(await getSettings('store')));
 });
 
 for (const key of Object.keys(SETTINGS) as SettingsKey[]) {
