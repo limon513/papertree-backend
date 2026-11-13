@@ -4,6 +4,7 @@ import { isProduction } from '../../../config/env.ts';
 import { db } from '../../../db/client.ts';
 import { customers, customerSessions } from '../../../db/schema/index.ts';
 import { randomToken, sha256 } from '../../../lib/crypto.ts';
+import { businessView } from './business.ts';
 import { addressesOf, addressView } from '../../admin/customers/service.ts';
 
 /**
@@ -77,6 +78,8 @@ export async function customerView(c: typeof customers.$inferSelect) {
     avatarUrl: c.avatarUrl,
     google: !!c.googleId,
     business: c.type === 'business' && c.businessStatus === 'approved',
+    /** The wholesale request and its answer (null: never asked). */
+    businessRequest: businessView(c),
     /** The one checkout fills in. */
     address: best ? { districtId: best.districtId, areaId: best.areaId, address: best.address } : null,
     addresses,

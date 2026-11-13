@@ -152,6 +152,9 @@ export const customerDetail = z
   .object({
     ...customerFields,
     tradeLicense: z.string().nullable(),
+    businessType: z.enum(['shop', 'school', 'office', 'other']).nullable(),
+    businessAddress: z.string().nullable(),
+    businessAppliedAt: z.iso.datetime().nullable().meta({ description: 'When they asked on the website' }),
     wholesaleTerms: termsView.nullable(),
     blockedReason: z.string().nullable(),
     note: z.string().nullable(),

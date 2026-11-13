@@ -103,6 +103,8 @@ export const messagesSettings = z
     shipped: channels(true, true),
     delivered: channels(false, true),
     cancelled: channels(true, true),
+    /** A business account approved (from the website's business sign-up or by staff). */
+    businessApproved: channels(true, true),
   })
   .meta({ id: 'MessageSettings' });
 

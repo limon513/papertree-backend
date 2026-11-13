@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ZodOpenApiPathsObject } from 'zod-openapi';
 import { errors, json, jsonBody } from '../../../docs/common.ts';
 import { addressBody, codeBody, googleBody, profileBody, verifyBody } from './schemas.ts';
+import { businessApplyBody } from './business.ts';
 
 const tags = ['Store: sign-in and account'];
 const open = z.object({}).catchall(z.unknown());
@@ -77,6 +78,15 @@ export const accountDocs: ZodOpenApiPathsObject = {
       description: signedIn,
       requestParams: { path: z.object({ number: z.coerce.number().int() }) },
       responses: { '200': json(open.meta({ id: 'StoreMyOrder' })), ...errors(401, 404) },
+    },
+  },
+  '/v1/store/me/business': {
+    post: {
+      tags,
+      summary: 'Ask for a business (wholesale) account',
+      description: signedIn + ' The account is marked pending and the shop gets an email; staff call, then approve it (Customers). Approved accounts buy at wholesale prices. Returns { customer } with businessRequest. 409 when already pending or approved.',
+      requestBody: jsonBody(businessApplyBody),
+      responses: { '200': json(open.meta({ id: 'StoreBusinessApplied' })), ...errors(400, 401, 409) },
     },
   },
   '/v1/store/me/addresses': {
