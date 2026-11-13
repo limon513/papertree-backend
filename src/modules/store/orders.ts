@@ -12,6 +12,7 @@ import { createOrder } from '../admin/orders/service.ts';
 import { currentCustomer, signIn } from './account/session.ts';
 import { imagesById } from './catalog.ts';
 import { isApprovedBusiness } from '../admin/customers/service.ts';
+import { getSettings } from '../admin/settings/service.ts';
 import { checkoutBody } from './schemas.ts';
 
 /** Orders from the website. Mounted at /v1/store/orders. */
@@ -107,10 +108,17 @@ export async function orderView(where: SQL) {
   if (!order) return null;
   const o = order.order;
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, o.id)).orderBy(asc(orderItems.position));
-  const images = await imagesById(items.map((i) => i.imageId));
+  const [images, checkout] = await Promise.all([imagesById(items.map((i) => i.imageId)), o.type === 'wholesale' ? getSettings('checkout') : null]);
   return {
     number: o.number,
     status: o.status,
+    /** wholesale: a business order (advance, then the rest on delivery). */
+    type: o.type,
+    /** Wholesale: to pay before it is sent. */
+    advanceRequired: o.advanceRequired,
+    paidAmount: o.paidAmount,
+    /** Wholesale: how to pay the advance (bKash / Nagad numbers). */
+    payAdvance: checkout?.wholesale.payAdvance ?? null,
     createdAt: o.createdAt,
     customerName: o.customerName,
     phone: o.phone,

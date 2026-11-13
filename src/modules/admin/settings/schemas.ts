@@ -66,8 +66,11 @@ export const checkoutSettings = z
         }),
         deliveryFee: money('delivery charge').nullable().default(null),
         terms: optionalText(2000).default(null).meta({ description: 'Shown to business customers at checkout' }),
+        payAdvance: optionalText(500)
+          .default(null)
+          .meta({ description: 'How to pay the advance (bKash / Nagad numbers), shown at checkout, on the order page and in the email' }),
       })
-      .default({ advancePercent: 5, minOrderAmount: null, delivery: 'retail', deliveryFee: null, terms: null })
+      .default({ advancePercent: 5, minOrderAmount: null, delivery: 'retail', deliveryFee: null, terms: null, payAdvance: null })
       .superRefine((w, ctx) => {
         if (w.delivery === 'fixed' && w.deliveryFee === null) {
           ctx.addIssue({ code: 'custom', path: ['deliveryFee'], message: 'Enter the delivery charge' });
@@ -242,6 +245,7 @@ export const checkoutSettingsSchema = z
       delivery: z.enum(WHOLESALE_DELIVERY),
       deliveryFee: z.number().nullable(),
       terms: text,
+      payAdvance: text,
     }),
     bulk: z.object({ enabled: z.boolean(), tiers: z.array(z.object({ minQuantity: z.number(), percent: z.number() })), onSale: z.boolean() }),
   })

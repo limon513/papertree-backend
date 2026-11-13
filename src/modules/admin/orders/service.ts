@@ -23,6 +23,12 @@ import { AREAS, DISTRICTS, getSettings, listZones, quote } from '../settings/ser
 import { STATUS_FLOW, type OrderInput } from './schemas.ts';
 
 const round = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * The advance of a wholesale order: `percent` of the total, rounded up to whole taka. Computer maths
+ * can give 77.00000000000001 for 77, so it is first cut to 4 decimals (else that would become 78).
+ */
+export const advanceFor = (total: number, percent: number) => Math.ceil(Math.round(((total * percent) / 100) * 10_000) / 10_000);
 const taka = (n: number) => `৳${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 
 /** Orders whose items can still be changed. */
@@ -269,7 +275,7 @@ async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = ne
   }
   const total = round(subtotal - input.discount - couponDiscount + deliveryFee);
   // Whole taka, rounded up.
-  const advanceRequired = input.type === 'wholesale' ? Math.ceil((total * checkout.wholesale.advancePercent) / 100) : 0;
+  const advanceRequired = input.type === 'wholesale' ? advanceFor(total, checkout.wholesale.advancePercent) : 0;
 
   return {
     items,
