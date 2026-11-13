@@ -83,6 +83,8 @@ export const productBody = z
     categoryIds: z.array(id).max(20, { error: 'At most 20 categories' }).default([]),
     /** Main category. Must be one of categoryIds. Defaults to the first. */
     primaryCategoryId: id.nullable().default(null),
+    /** Website tags ("Overseas"). Left out: the product keeps the ones it has. */
+    labelIds: z.array(id).max(10, { error: 'At most 10 tags' }).optional().meta({ description: 'Website tags (badges). Left out: unchanged.' }),
     tags: z
       .array(z.string().trim().min(1).max(50))
       .max(30, { error: 'At most 30 tags' })
@@ -167,6 +169,8 @@ export const productListQuery = z.object({
   status: z.enum(PRODUCT_STATUSES).optional(),
   brandId: z.coerce.number().int().positive().optional(),
   categoryId: z.coerce.number().int().positive().optional(),
+  /** Products with this website tag. */
+  labelId: z.coerce.number().int().positive().optional(),
   /** low: a variant is at or below its low-stock level. out: a variant has no stock. */
   stock: z.enum(['low', 'out']).optional(),
   sort: z.enum(['updated', 'name', 'price', 'stock']).default('updated'),
@@ -187,6 +191,8 @@ export const productBulkBody = z
     z.object({ action: z.literal('add-category'), ids: productIds, categoryId: id }),
     z.object({ action: z.literal('remove-category'), ids: productIds, categoryId: id }),
     z.object({ action: z.literal('set-brand'), ids: productIds, brandId: id.nullable() }),
+    z.object({ action: z.literal('add-label'), ids: productIds, labelId: id }),
+    z.object({ action: z.literal('remove-label'), ids: productIds, labelId: id }),
     z.object({ action: z.literal('delete'), ids: productIds }),
   ])
   .meta({ id: 'ProductBulkBody' });
@@ -248,6 +254,7 @@ export const productSchema = z
     brandId: z.number().nullable(),
     categoryIds: z.array(z.number()),
     primaryCategoryId: z.number().nullable(),
+    labelIds: z.array(z.number()).meta({ description: 'Website tags (badges)' }),
     tags: z.array(z.string()),
     images: z.array(mediaSchema),
     options: z.array(z.object({ name: z.string(), values: z.array(z.string()) })),

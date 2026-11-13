@@ -169,6 +169,13 @@
       "when": 1794538505779,
       "tag": "0023_business_signup",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794546106066,
+      "tag": "0024_product_labels",
+      "breakpoints": true
     }
   ]
 }

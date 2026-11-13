@@ -4,7 +4,7 @@ import { db } from '../../../db/client.ts';
 import {
   brands,
   inventoryLevels,
-  productCategories,
+  productCategories, productLabels,
   productImages,
   products,
   productVariants,
@@ -35,6 +35,9 @@ productsRouter.get('/', async (req, res) => {
             .from(productCategories)
             .where(and(eq(productCategories.productId, products.id), eq(productCategories.categoryId, q.categoryId))),
         )
+      : undefined,
+    q.labelId
+      ? exists(db.select({ one: sql`1` }).from(productLabels).where(and(eq(productLabels.productId, products.id), eq(productLabels.labelId, q.labelId))))
       : undefined,
   ];
   if (q.search) {

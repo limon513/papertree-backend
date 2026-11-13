@@ -49,3 +49,27 @@ export const brands = pgTable(
   },
   (t) => [uniqueIndex('brands_name_lower_idx').on(sql`lower(${t.name})`)],
 );
+
+/** Colours a tag can have on the website (matched by the storefront's badge styles). */
+export const LABEL_COLORS = ['green', 'blue', 'amber', 'red', 'purple', 'pink', 'gray', 'black'] as const;
+export type LabelColor = (typeof LABEL_COLORS)[number];
+
+/**
+ * Tags shown on the website as coloured badges ("Overseas", "Imported", "Best for school"), with a
+ * filter on product lists. Not the same as products.tags, which are search keywords.
+ */
+export const labels = pgTable(
+  'labels',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull().unique(),
+    color: text('color').$type<LabelColor>().notNull().default('green'),
+    /** Shown on product cards (always on the product page and in the filter). */
+    showOnCards: boolean('show_on_cards').notNull().default(true),
+    isActive: boolean('is_active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('labels_name_lower_idx').on(sql`lower(${t.name})`)],
+);

@@ -7,7 +7,7 @@ import { banners, brands, pages, productCategories, productImages, productReques
 import { notFound } from '../../lib/errors.ts';
 import { advanceFor, defaultLocationId } from '../admin/orders/service.ts';
 import { AREAS, DISTRICTS, getSettings, listZones, LOCATIONS, quote } from '../admin/settings/service.ts';
-import { activeCategories, cards, CURRENT_PRICE, facets, imagesById, inCategories, LOW_STOCK, SORTS } from './catalog.ts';
+import { activeCategories, cards, cardTags, CURRENT_PRICE, facets, imagesById, inCategories, LOW_STOCK, SORTS, withTags } from './catalog.ts';
 import { cartBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
 import { nameMatches, planSearch, productBySku, searchRank, searchWhere } from './search.ts';
 import { checkCouponUse, cleanCode, codeGuard, CouponError, couponFor, couponLabel, findCoupon, shortfallMessage } from '../admin/coupons/service.ts';
@@ -167,6 +167,7 @@ storeRouter.get('/products', async (req, res) => {
   }
   const plan = q.q ? await planSearch(q.q) : null;
   const brandFilter = q.brand.length ? sql`c.brand_slug in (${sql.join(q.brand.map((b) => sql`${b}`), sql`, `)})` : undefined;
+  const tagFilter = q.tag.length ? withTags(q.tag.slice(0, 20)) : undefined;
   const priceFilter = and_([
     q.min !== undefined ? sql`c.current_price >= ${q.min}` : undefined,
     q.max !== undefined ? sql`c.current_price <= ${q.max}` : undefined,
@@ -176,7 +177,11 @@ storeRouter.get('/products', async (req, res) => {
 
   const run = (search: SQL | undefined) => {
     const base = [categoryFilter, search, q.inStock ? sql`c.in_stock` : undefined, q.onSale ? sql`c.regular_price > c.current_price` : undefined];
-    return Promise.all([cards(and_([...base, brandFilter, priceFilter]), order, q.pageSize, (q.page - 1) * q.pageSize), facets(and_(base))]);
+    // Each filter's own choices are counted without itself (picking a brand still shows the other brands).
+    return Promise.all([
+      cards(and_([...base, brandFilter, priceFilter, tagFilter]), order, q.pageSize, (q.page - 1) * q.pageSize),
+      facets(and_([...base, tagFilter]), and_([...base, brandFilter])),
+    ]);
   };
   let [list, filters] = await run(plan ? searchWhere(plan) : undefined);
   // Nothing has all the words: show what has some of them ("doms pencil box 24" -> DOMS and pencil boxes).
@@ -296,6 +301,7 @@ storeRouter.get('/products/:slug', async (req, res) => {
   ]);
 
   const variants = variantRows.rows;
+  const tagMap = await cardTags([product.id], false);
   const images = await imagesById([...gallery.map((g) => g.mediaId), ...variants.map((v) => (v.image_id ? Number(v.image_id) : null))]);
 
   // Breadcrumbs follow the main category.
@@ -325,6 +331,8 @@ storeRouter.get('/products/:slug', async (req, res) => {
     seoDescription: product.seoDescription,
     images: gallery.map((g) => images.get(g.mediaId)).filter(Boolean),
     categoryPath: path,
+    /** Website tags ("Overseas"). */
+    labels: tagMap.get(product.id) ?? [],
     /** Businesses pay less for it (the price itself is only for approved business accounts). */
     hasWholesale: variants.some((v) => v.cheaper_wholesale),
     variants: variants.map((v) => {

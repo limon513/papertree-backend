@@ -11,6 +11,7 @@ const list = z
 export const productListQuery = z.object({
   category: z.string().trim().max(120).optional().meta({ description: 'Category slug; includes its sub-categories' }),
   brand: list.meta({ description: 'Brand slug(s), comma separated' }),
+  tag: list.meta({ description: 'Tag slug(s), comma separated (any of them)' }),
   q: z.string().trim().max(100).optional().meta({ description: 'Search words: typos are fixed, synonyms used ("khata" = notebook), a SKU is found' }),
   sort: z
     .enum(['relevance', 'popular', 'newest', 'price_asc', 'price_desc', 'name', 'deals'])
