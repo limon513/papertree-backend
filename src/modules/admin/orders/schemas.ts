@@ -222,6 +222,8 @@ export const orderDetail = z
         }),
       )
       .meta({ description: 'SMS and emails the customer was sent about this order, newest first' }),
+    courierRecord: z.object({ phone: z.string(), level: z.enum(['good', 'watch', 'risky', 'unknown']), record: z.record(z.string(), z.unknown()), checkedAt: z.iso.datetime() }).nullable().meta({ description: "The customer's saved courier record (Steadfast), null: not checked" }),
+    canCheckCourier: z.boolean().meta({ description: 'Steadfast keys are saved, so the record can be checked' }),
     customer: z
       .object({
         id: z.number(),

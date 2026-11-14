@@ -40,9 +40,13 @@ export const COURIER_STATUS: Record<string, string> = {
 /** Orders that can be sent: confirmed or packed. */
 const READY = ['confirmed', 'packed'] as const;
 
-async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown) {
+/**
+ * One call to Steadfast. Booking needs "Send orders with Steadfast" on; reading (status, tracking,
+ * balance) works with it off too, for parcels already sent and to check the keys.
+ */
+export async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown) {
   const { settings, secrets } = await getIntegration('steadfast');
-  if (!settings.enabled) throw badRequest('Steadfast is switched off (Integrations → Steadfast).');
+  if (method === 'POST' && !settings.enabled) throw badRequest('Steadfast is switched off (Integrations → Steadfast).');
   if (!secrets.apiKey || !secrets.secretKey) throw badRequest('Add the Steadfast API key and secret key first (Integrations → Steadfast).');
   const base = env.STEADFAST_URL.replace(/\/$/, '');
   if (!isProduction && base === REAL_URL && !env.STEADFAST_ALLOW_REAL) {
@@ -266,6 +270,40 @@ export async function steadfastBalance() {
   }
 }
 
+// ---- Parcel journey (for customers tracking an order) ----
+
+export interface ParcelStep {
+  text: string;
+  at: string | null;
+}
+
+/** Steadfast keeps answers for 60 seconds, so asking more often tells nothing new. */
+const stepsCache = new Map<number, { at: number; steps: ParcelStep[] | null }>();
+
+/**
+ * Every step a parcel has been through (Steadfast's own words), newest first, by our order number.
+ * null when Steadfast cannot be asked (no keys, not the live server, no answer).
+ */
+export async function parcelSteps(orderNumber: number): Promise<ParcelStep[] | null> {
+  const hit = stepsCache.get(orderNumber);
+  if (hit && Date.now() - hit.at < 60_000) return hit.steps;
+  let steps: ParcelStep[] | null = null;
+  try {
+    const answer = await call<{ status?: number; tracking?: { text?: string; created_at?: string }[] }>('GET', `/trackings_by_invoice/${orderNumber}`);
+    if (answer.ok && Array.isArray(answer.data?.tracking)) {
+      steps = answer.data.tracking
+        .filter((t) => typeof t.text === 'string' && t.text.trim())
+        .map((t) => ({ text: t.text!.replace(/\s+/g, ' ').trim().slice(0, 300), at: typeof t.created_at === 'string' ? t.created_at : null }))
+        .reverse();
+    }
+  } catch {
+    steps = null;
+  }
+  stepsCache.set(orderNumber, { at: Date.now(), steps });
+  if (stepsCache.size > 2000) stepsCache.delete(stepsCache.keys().next().value!);
+  return steps;
+}
+
 // ---- Webhook ----
 
 const same = (a: string, b: string) => {
@@ -276,12 +314,12 @@ const same = (a: string, b: string) => {
 
 /**
  * Is this really Steadfast? Both the Bearer token and the signature (HMAC-SHA256 of the raw body,
- * hex, keyed with the token) must match. Switched off or no token: nobody is.
+ * hex, keyed with the token) must match. No token: nobody is (it works with sending off too).
  */
 export async function webhookAllowed(authorization: string | undefined, signature: string | undefined, raw: Buffer) {
   const { settings } = await getIntegration('steadfast');
   const token = settings.webhookToken ?? '';
-  if (!settings.enabled || token.length < 20) return false;
+  if (token.length < 20) return false;
   const given = /^Bearer\s+(.+)$/i.exec(authorization ?? '')?.[1]?.trim() ?? '';
   if (!same(given, token)) return false;
   const expected = createHmac('sha256', token).update(raw).digest('hex');

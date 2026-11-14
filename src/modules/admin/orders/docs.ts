@@ -172,6 +172,19 @@ export const ordersDocs: ZodOpenApiPathsObject = {
       },
     },
   },
+  '/v1/admin/orders/{id}/courier-record': {
+    post: {
+      tags,
+      security,
+      summary: "Check the customer's courier record",
+      description:
+        `${access} Steadfast's record of this phone number with every merchant: delivered and cancelled shares of finished parcels, how many parcels, and reports. ` +
+        'level: risky (30%+ came back or 3+ reports), watch (15%+ or any report), unknown (nothing finished: not the same as clean), good. ' +
+        'Saved per number (used for 3 days; new website orders are checked in the background). Asked again at most once a minute. Information only: never blocks an order.',
+      requestParams: { path: idParam },
+      responses: { '200': json(z.object({ phone: z.string(), level: z.enum(['good', 'watch', 'risky', 'unknown']), record: z.record(z.string(), z.unknown()), checkedAt: z.iso.datetime() })), ...errors(400, 401, 403, 404) },
+    },
+  },
   '/v1/admin/orders/{id}/courier/refresh': {
     post: {
       tags,

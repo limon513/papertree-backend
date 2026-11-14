@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ZodOpenApiPathsObject } from 'zod-openapi';
 import { errors, json, jsonBody } from '../../docs/common.ts';
 import { locationsSchema } from '../admin/settings/schemas.ts';
+import { trackBody } from './track.ts';
 import { cartBody, checkoutBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
 
 const tags = ['Store (public)'];
@@ -114,6 +115,17 @@ export const storeDocs: ZodOpenApiPathsObject = {
         '200': json(z.object({ number: z.number(), token: z.string().nullable(), total: z.number() }), 'Already placed (same requestId)'),
         ...errors(400, 409, 429),
       },
+    },
+  },
+  '/v1/store/track': {
+    post: {
+      tags,
+      summary: 'Track an order',
+      description:
+        'The order number and the phone it was placed with. Answers where it is (status, dates, area), what is still to pay, and once it is with the courier the tracking code and link and every step of the journey (newest first). ' +
+        'No address or items. A wrong number and a wrong phone give the same 404. 30 tries per 10 minutes.',
+      requestBody: jsonBody(trackBody),
+      responses: { '200': json(open.meta({ id: 'StoreTrackedOrder' })), ...errors(400, 404, 429) },
     },
   },
   '/v1/store/orders/{token}': {

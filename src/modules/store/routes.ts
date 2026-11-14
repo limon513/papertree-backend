@@ -17,6 +17,7 @@ import { accountRouter } from './account/routes.ts';
 import { storeSeoRouter } from './seo.ts';
 import { getIntegration } from '../admin/integrations/service.ts';
 import { businessOf, termsOf, WHOLESALE_PRICE, wholesaleRouter } from './wholesale.ts';
+import { trackRouter } from './track.ts';
 
 /** Public API for the website. Mounted at /v1/store. Shoppers may sign in (account routes). */
 export const storeRouter = Router();
@@ -544,4 +545,5 @@ interface StoreCartCoupon {
 storeRouter.use('/orders', storeOrdersRouter);
 storeRouter.use(accountRouter);
 storeRouter.use(wholesaleRouter);
+storeRouter.use(trackRouter);
 storeRouter.use(storeSeoRouter);

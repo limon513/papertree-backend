@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, numeric, pgSequence, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { check, index, integer, jsonb, numeric, pgSequence, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { adminUsers } from './admin.ts';
 import { coupons } from './coupons.ts';
 import { customers } from './customers.ts';
@@ -179,4 +179,22 @@ export const orderEvents = pgTable(
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [index('order_events_order_id_idx').on(t.orderId, t.createdAt)],
+);
+
+/** How a phone number's parcels went with couriers: good, watch, risky, or unknown (no finished parcels). */
+export type CourierLevel = 'good' | 'watch' | 'risky' | 'unknown';
+
+/**
+ * A customer's delivery record from Steadfast (all merchants), saved per phone so it is not asked
+ * again for a few days (Steadfast allows few checks a day). Information for staff, never a verdict.
+ */
+export const courierChecks = pgTable(
+  'courier_checks',
+  {
+    phone: text('phone').primaryKey(),
+    level: text('level').$type<CourierLevel>().notNull(),
+    /** The record as Steadfast gave it (ratios, counts, reports). */
+    data: jsonb('data').notNull(),
+    checkedAt: timestamptz('checked_at').notNull().defaultNow(),
+  },
 );

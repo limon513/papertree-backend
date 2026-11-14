@@ -190,6 +190,13 @@
       "when": 1794579839815,
       "tag": "0026_tracking_url",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794616380836,
+      "tag": "0027_courier_checks",
+      "breakpoints": true
     }
   ]
 }

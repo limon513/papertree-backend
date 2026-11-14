@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { refreshCourierStatus, sendToSteadfast } from './steadfast.ts';
+import { canCheck, courierRecord, savedRecord } from './courier-record.ts';
 import { and, asc, count, desc, eq, gte, ilike, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../../db/client.ts';
 import { adminUsers, customerAddresses, customers, orderEvents, orderItems, orderPayments, orders, products, productVariants } from '../../../db/schema/index.ts';
@@ -94,6 +95,8 @@ ordersRouter.get('/', async (req, res) => {
         advanceRequired: orders.advanceRequired,
         consignmentId: orders.consignmentId,
         courierStatus: orders.courierStatus,
+        /** The customer's saved courier record (good, watch, risky, unknown; null: not checked). */
+        courierLevel: sql<string | null>`(select cc.level from courier_checks cc where cc.phone = "orders"."phone")`,
         createdAt: orders.createdAt,
       })
       .from(orders)
@@ -260,7 +263,7 @@ async function orderView(id: number) {
   const [order] = await db.select().from(orders).where(eq(orders.id, id));
   if (!order) throw notFound('Order not found');
 
-  const [items, payments, events, customer, messages] = await Promise.all([
+  const [items, payments, events, customer, messages, record, checkable] = await Promise.all([
     db.select().from(orderItems).where(eq(orderItems.orderId, id)).orderBy(asc(orderItems.position)),
     db
       .select({
@@ -297,6 +300,8 @@ async function orderView(id: number) {
           .where(eq(customers.id, order.customerId))
       : Promise.resolve([]),
     orderMessagesOf(order.number),
+    savedRecord(order.phone),
+    canCheck(),
   ]);
 
   const [createdBy] = order.createdBy
@@ -312,6 +317,9 @@ async function orderView(id: number) {
     events,
     /** SMS and emails the customer was sent about this order. */
     messages,
+    /** The customer's saved courier record (null: not checked yet), and whether it can be checked. */
+    courierRecord: record,
+    canCheckCourier: checkable,
     customer: customer[0] ?? null,
   };
 }
@@ -328,6 +336,14 @@ ordersRouter.post('/courier/steadfast', async (req, res) => {
     after: { sent: results.filter((r) => r.ok).map((r) => r.number), failed: results.filter((r) => !r.ok).map((r) => r.number), markShipped: input.markShipped },
   });
   res.json({ results });
+});
+
+/** The customer's courier record: delivered and cancelled shares with all merchants, and reports. Asks Steadfast now. */
+ordersRouter.post('/:id/courier-record', async (req, res) => {
+  const id = parseId(req.params.id);
+  const [o] = await db.select({ phone: orders.phone }).from(orders).where(eq(orders.id, id));
+  if (!o) throw notFound('Order not found');
+  res.json(await courierRecord(o.phone, { force: true }));
 });
 
 /** Asks Steadfast where the parcel is now. */

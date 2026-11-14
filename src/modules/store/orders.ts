@@ -14,6 +14,7 @@ import { imagesById } from './catalog.ts';
 import { isApprovedBusiness } from '../admin/customers/service.ts';
 import { getSettings } from '../admin/settings/service.ts';
 import { checkoutBody } from './schemas.ts';
+import { courierView } from './track.ts';
 
 /** Orders from the website. Mounted at /v1/store/orders. */
 export const storeOrdersRouter = Router();
@@ -86,6 +87,8 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
     res.status(201).json(placed(order));
     // Emails go out in the background: the shopper never waits for them, and a failure never undoes the order.
     sendJob(QUEUES.orderPlaced, { orderId: order.id }).catch((err) => logger.error({ err, order: order.number }, 'Could not queue the order emails'));
+    // Cash on delivery: the customer's courier record, for staff to see before confirming.
+    sendJob(QUEUES.courierCheck, { phone }).catch((err) => logger.error({ err, order: order.number }, 'Could not queue the courier check'));
   } catch (err) {
     if (err instanceof CouponError && err.reason === 'unknown') codeGuard.failed(req.ip);
     // Two copies of the same attempt at the same moment: one won, return it.
@@ -127,8 +130,8 @@ export async function orderView(where: SQL) {
     districtName: o.districtName,
     deliveryTime: order.deliveryTime,
     paymentMethod: o.paymentMethod,
-    courier: o.courier,
-    trackingCode: o.trackingCode,
+    /** Courier, tracking code and link, where the parcel is, its journey. */
+    ...(await courierView(o)),
     items: items.map((i) => ({
       // For "Order again" (null when the product was deleted).
       variantId: i.variantId,
