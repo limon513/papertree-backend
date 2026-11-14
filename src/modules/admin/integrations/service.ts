@@ -57,6 +57,9 @@ export function stateOf(key: IntegrationKey, s: Loaded<IntegrationKey>) {
     case 'google':
       if (!set.enabled) return 'off';
       return set.apiKey && set.authDomain && set.projectId && set.appId ? 'ready' : 'incomplete';
+    case 'steadfast':
+      if (!set.enabled) return 'off';
+      return s.secrets.apiKey && s.secrets.secretKey ? 'ready' : 'incomplete';
     case 'payment':
       if (!set.enabled) return 'off';
       return set.storeId && s.secrets.storePassword ? 'ready' : 'incomplete';

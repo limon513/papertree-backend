@@ -101,6 +101,17 @@ export const statusBody = z
   })
   .meta({ id: 'OrderStatusBody' });
 
+/** Send orders to Steadfast (one parcel each). */
+export const steadfastSendBody = z
+  .object({
+    ids: z.array(z.number().int().positive()).min(1, { error: 'Choose at least one order' }).max(100, { error: 'At most 100 orders at a time' }).transform((ids) => [...new Set(ids)]),
+    /** Mark them shipped (Steadfast, with the tracking code). */
+    markShipped: z.boolean().default(true),
+    /** And tell the customers (Settings → Customer messages). */
+    notify: z.boolean().default(true),
+  })
+  .meta({ id: 'SteadfastSendBody' });
+
 export const paymentBody = z
   .object({
     method: z.enum(PAYMENT_METHODS),

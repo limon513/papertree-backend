@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, numeric, pgSequence, pgTable, text } from 'drizzle-orm/pg-core';
+import { check, index, integer, numeric, pgSequence, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { adminUsers } from './admin.ts';
 import { coupons } from './coupons.ts';
 import { customers } from './customers.ts';
@@ -77,6 +77,13 @@ export const orders = pgTable(
 
     courier: text('courier'),
     trackingCode: text('tracking_code'),
+    /** Steadfast: its id for the parcel, its latest status (in_review, pending, delivered...) and when. */
+    consignmentId: text('consignment_id'),
+    /** Steadfast's tracking page for the parcel (from booking). */
+    trackingUrl: text('tracking_url'),
+    courierStatus: text('courier_status'),
+    courierStatusAt: timestamptz('courier_status_at'),
+    courierSentAt: timestamptz('courier_sent_at'),
     customerNote: text('customer_note'),
     staffNote: text('staff_note'),
 
@@ -97,6 +104,8 @@ export const orders = pgTable(
     index('orders_phone_idx').on(t.phone),
     index('orders_customer_id_idx').on(t.customerId),
     index('orders_coupon_id_idx').on(t.couponId).where(sql`${t.couponId} is not null`),
+    // Steadfast status updates find their order by the parcel id; one parcel per order.
+    uniqueIndex('orders_consignment_id_idx').on(t.consignmentId).where(sql`${t.consignmentId} is not null`),
     // Last line of defence: no code path may save a negative amount.
     check('orders_money_not_negative', sql`${t.total} >= 0 and ${t.discount} >= 0 and ${t.bulkDiscount} >= 0 and ${t.couponDiscount} >= 0 and ${t.deliveryFee} >= 0`),
   ],
