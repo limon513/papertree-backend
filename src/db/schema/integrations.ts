@@ -2,7 +2,7 @@ import { index, jsonb, pgTable, text } from 'drizzle-orm/pg-core';
 import { adminUsers } from './admin.ts';
 import { id, ref, timestamptz } from './_helpers.ts';
 
-export const INTEGRATION_KEYS = ['email', 'sms', 'google', 'payment'] as const;
+export const INTEGRATION_KEYS = ['email', 'sms', 'google', 'payment', 'steadfast'] as const;
 export type IntegrationKey = (typeof INTEGRATION_KEYS)[number];
 
 /**

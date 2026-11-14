@@ -1,5 +1,7 @@
 import { and, desc, eq, like, ne } from 'drizzle-orm';
+import { env } from '../../config/env.ts';
 import { db } from '../../db/client.ts';
+import { QUEUES, sendJob } from '../../jobs/boss.ts';
 import { messageLog, orders } from '../../db/schema/index.ts';
 import { logger } from '../../lib/logger.ts';
 import { sendEmail, sendSms } from '../admin/integrations/service.ts';
@@ -172,6 +174,17 @@ export async function sendOrderUpdate(orderId: number, event: OrderUpdate) {
   if (choice.email && o.email && !(await alreadySent(purpose, 'email'))) {
     await sendEmail({ to: o.email, ...statusEmail(event, d), purpose });
   }
+}
+
+/**
+ * Tells the customer about a status change, a minute later (time to undo a wrong click). Steps they
+ * do not hear about (packed, returned) are ignored. Never throws.
+ */
+export function queueOrderUpdate(orderId: number, status: string) {
+  if (!(ORDER_UPDATES as readonly string[]).includes(status)) return;
+  sendJob(QUEUES.orderStatus, { orderId, status }, { startAfter: env.ORDER_MESSAGE_DELAY }).catch((err) =>
+    logger.error({ err, order: orderId }, 'Could not queue the customer message'),
+  );
 }
 
 /** The "order placed" SMS (the email goes with the shop's alert, in order-emails). */

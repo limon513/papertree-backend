@@ -498,7 +498,7 @@ async function recordPayment(
   tx: Tx,
   order: typeof orders.$inferSelect,
   payment: { method: (typeof orders.$inferSelect)['paymentMethod']; amount: number; reference: string | null; note: string | null },
-  adminUserId: number,
+  adminUserId: number | null,
 ) {
   await tx.insert(orderPayments).values({ orderId: order.id, ...payment, createdBy: adminUserId });
   const paid = round(order.paidAmount + payment.amount);
@@ -515,7 +515,8 @@ export async function addPayment(id: number, payment: Parameters<typeof recordPa
 export async function setStatus(
   id: number,
   input: { status: OrderStatus; note: string | null; courier?: string | null; trackingCode?: string | null; collectDue: boolean },
-  adminUserId: number,
+  /** null: done by the shop's systems (Steadfast), not a person. */
+  adminUserId: number | null,
 ) {
   return db.transaction(async (tx) => {
     const order = await lockOrder(tx, id);

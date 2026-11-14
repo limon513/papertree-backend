@@ -1,18 +1,16 @@
 import { Router } from 'express';
+import { refreshCourierStatus, sendToSteadfast } from './steadfast.ts';
 import { and, asc, count, desc, eq, gte, ilike, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
-import { env } from '../../../config/env.ts';
 import { db } from '../../../db/client.ts';
 import { adminUsers, customerAddresses, customers, orderEvents, orderItems, orderPayments, orders, products, productVariants } from '../../../db/schema/index.ts';
-import { QUEUES, sendJob } from '../../../jobs/boss.ts';
 import { audit } from '../../../lib/audit.ts';
 import { badRequest, notFound } from '../../../lib/errors.ts';
 import { parseId } from '../../../lib/ids.ts';
-import { logger } from '../../../lib/logger.ts';
 import { normalizePhone } from '../../../lib/phone.ts';
 import { currentAdmin } from '../../../middleware/admin-auth.ts';
 import { addressView, isApprovedBusiness } from '../customers/service.ts';
 import { cleanCode, CouponError } from '../coupons/service.ts';
-import { ORDER_UPDATES, orderMessagesOf } from '../../store/order-updates.ts';
+import { ORDER_UPDATES, orderMessagesOf, queueOrderUpdate } from '../../store/order-updates.ts';
 import { withImages } from '../media/view.ts';
 import { quoteBody } from '../settings/schemas.ts';
 import { DISTRICTS, getSettings, listZones, quote } from '../settings/service.ts';
@@ -26,6 +24,7 @@ import {
   priceBody,
   STATUS_FLOW,
   statusBody,
+  steadfastSendBody,
   variantSearchQuery,
 } from './schemas.ts';
 import {
@@ -92,6 +91,9 @@ ordersRouter.get('/', async (req, res) => {
         items: sql<number>`(select coalesce(sum(oi.quantity), 0) from order_items oi where oi.order_id = "orders"."id")`.mapWith(Number),
         total: orders.total,
         paidAmount: orders.paidAmount,
+        advanceRequired: orders.advanceRequired,
+        consignmentId: orders.consignmentId,
+        courierStatus: orders.courierStatus,
         createdAt: orders.createdAt,
       })
       .from(orders)
@@ -314,6 +316,27 @@ async function orderView(id: number) {
   };
 }
 
+// ---- Steadfast courier ----
+
+/** Sends orders to Steadfast: one parcel each, the answer says what happened to each order. */
+ordersRouter.post('/courier/steadfast', async (req, res) => {
+  const input = steadfastSendBody.parse(req.body);
+  const results = await sendToSteadfast(input.ids, { markShipped: input.markShipped, notify: input.notify }, currentAdmin(req).id);
+  await audit(req, {
+    action: 'order.steadfast',
+    entityType: 'order',
+    after: { sent: results.filter((r) => r.ok).map((r) => r.number), failed: results.filter((r) => !r.ok).map((r) => r.number), markShipped: input.markShipped },
+  });
+  res.json({ results });
+});
+
+/** Asks Steadfast where the parcel is now. */
+ordersRouter.post('/:id/courier/refresh', async (req, res) => {
+  const id = parseId(req.params.id);
+  const result = await refreshCourierStatus(id, currentAdmin(req).id);
+  res.json({ ...result, order: await orderView(id) });
+});
+
 ordersRouter.get('/:id', async (req, res) => {
   res.json(await orderView(parseId(req.params.id)));
 });
@@ -340,12 +363,8 @@ ordersRouter.post('/:id/status', async (req, res) => {
   await setStatus(id, input, currentAdmin(req).id);
   const notify = input.notify && (ORDER_UPDATES as readonly string[]).includes(input.status);
   await audit(req, { action: 'order.status', entityType: 'order', entityId: id, after: { status: input.status, notify } });
-  if (notify) {
-    // A minute later, so a wrong click can be undone before the customer hears of it.
-    sendJob(QUEUES.orderStatus, { orderId: id, status: input.status }, { startAfter: env.ORDER_MESSAGE_DELAY }).catch((err) =>
-      logger.error({ err, order: id }, 'Could not queue the customer message'),
-    );
-  }
+  // A minute later, so a wrong click can be undone before the customer hears of it.
+  if (notify) queueOrderUpdate(id, input.status);
   res.json(await orderView(id));
 });
 

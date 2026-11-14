@@ -14,6 +14,7 @@ import { LOCAL_UPLOADS_DIR } from './lib/storage.ts';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.ts';
 import { adminRouter } from './modules/admin/router.ts';
 import { storeRouter } from './modules/store/routes.ts';
+import { webhooksRouter } from './modules/webhooks/routes.ts';
 
 const ICONS_DIR = join(import.meta.dirname, '..', 'public', 'icons');
 
@@ -56,6 +57,8 @@ export function createApp() {
       },
     }),
   );
+  // Webhooks first: they check signatures on the raw body, before JSON parsing.
+  app.use('/v1/webhooks', webhooksRouter);
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 

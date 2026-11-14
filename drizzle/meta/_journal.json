@@ -176,6 +176,20 @@
       "when": 1794546106066,
       "tag": "0024_product_labels",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794578050989,
+      "tag": "0025_steadfast",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794579839815,
+      "tag": "0026_tracking_url",
+      "breakpoints": true
     }
   ]
 }

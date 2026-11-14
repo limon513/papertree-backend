@@ -66,6 +66,27 @@ export const INTEGRATIONS = {
     }),
     secrets: ['storePassword'] as const,
   },
+  steadfast: {
+    settings: z.object({
+      /** Steadfast courier: send orders from the admin, statuses come back by webhook. */
+      enabled: z.boolean().default(false),
+      /**
+       * The webhook auth token (Steadfast portal → Webhook → Auth token): made there or here, the same in
+       * both. Steadfast allows letters, digits and - _ . = only.
+       */
+      webhookToken: z
+        .string()
+        .trim()
+        .max(200)
+        .default('')
+        .refine((v) => v === '' || /^[A-Za-z0-9._=-]{20,200}$/.test(v), { error: 'At least 20 letters, digits and - _ . = only' }),
+      /** When Steadfast says delivered: mark the order delivered and record the cash it collected. */
+      autoDeliver: z.boolean().default(true),
+      /** Item names and quantities go with the parcel (shown to the rider). */
+      sendItems: z.boolean().default(true),
+    }),
+    secrets: ['apiKey', 'secretKey'] as const,
+  },
 } satisfies Record<(typeof INTEGRATION_KEYS)[number], { settings: z.ZodObject; secrets: readonly string[] }>;
 
 export type IntegrationKey = keyof typeof INTEGRATIONS;

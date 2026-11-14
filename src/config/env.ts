@@ -22,6 +22,13 @@ const schema = z
       .transform((v) => v === 'true'),
     /** Seconds before a customer hears that their order moved on: time for staff to undo a wrong click. */
     ORDER_MESSAGE_DELAY: z.coerce.number().int().min(0).max(3600).default(60),
+    /** Steadfast courier API (tests point it at a fake server). */
+    STEADFAST_URL: z.string().url().default('https://portal.packzy.com/api/v1'),
+    /** Away from the live server the real Steadfast is never called (real parcels!), unless this is true. */
+    STEADFAST_ALLOW_REAL: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
 
     // Uploaded images: any S3-compatible storage (Neon Object Storage, AWS S3, ...),
     // or the local uploads/ folder when S3 is not set up.
