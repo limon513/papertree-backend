@@ -3,6 +3,7 @@ import { runImport } from '../modules/admin/imports/run.ts';
 import { readOldSite } from '../modules/admin/migration/reader.ts';
 import { sendOrderEmails } from '../modules/store/order-emails.ts';
 import { sendOrderUpdate, sendPlacedSms } from '../modules/store/order-updates.ts';
+import { checkInBackground } from '../modules/admin/orders/courier-record.ts';
 import type { OrderUpdate } from '../modules/store/order-updates.ts';
 import { QUEUES, startBoss } from './boss.ts';
 
@@ -22,6 +23,9 @@ export async function startWorkers() {
   });
   await boss.work<{ orderId: number; status: OrderUpdate }>(QUEUES.orderStatus, { batchSize: 1, pollingIntervalSeconds: 5 }, async ([job]) => {
     if (job) await sendOrderUpdate(job.data.orderId, job.data.status);
+  });
+  await boss.work<{ phone: string }>(QUEUES.courierCheck, { batchSize: 1, pollingIntervalSeconds: 5 }, async ([job]) => {
+    if (job) await checkInBackground(job.data.phone);
   });
   logger.info('Background workers started');
 }

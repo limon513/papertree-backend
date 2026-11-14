@@ -17,6 +17,8 @@ export const QUEUES = {
   orderPlaced: 'order-placed',
   /** Data: { orderId, status }. Tells the customer their order moved on (SMS / email), a minute after the change. */
   orderStatus: 'order-status',
+  /** Data: { phone }. A new website order's courier record (Steadfast), unless a fresh one is saved. */
+  courierCheck: 'courier-check',
   /** Data: { runId } of an old_site_runs row. Reads the old website for "Move from old site". */
   oldSiteRead: 'old-site-read',
 } as const;
@@ -33,6 +35,8 @@ export function startBoss() {
     // Emails: retried a few times if something goes wrong (each email is still sent only once).
     await boss.createQueue(QUEUES.orderPlaced, { expireInSeconds: 300, retryLimit: 3, retryDelay: 60 });
     await boss.createQueue(QUEUES.orderStatus, { expireInSeconds: 300, retryLimit: 3, retryDelay: 60 });
+    // Not retried: Steadfast allows few checks a day; staff can press Check now.
+    await boss.createQueue(QUEUES.courierCheck, { expireInSeconds: 120, retryLimit: 0 });
     // Reading a big old site can take a while; not retried (start it again from the page instead).
     await boss.createQueue(QUEUES.oldSiteRead, { expireInSeconds: 3 * 3600, retryLimit: 0 });
     return boss;
