@@ -18,6 +18,7 @@ import { storeSeoRouter } from './seo.ts';
 import { getIntegration } from '../admin/integrations/service.ts';
 import { businessOf, termsOf, WHOLESALE_PRICE, wholesaleRouter } from './wholesale.ts';
 import { trackRouter } from './track.ts';
+import { reviewsRouter } from './reviews.ts';
 
 /** Public API for the website. Mounted at /v1/store. Shoppers may sign in (account routes). */
 export const storeRouter = Router();
@@ -334,6 +335,8 @@ storeRouter.get('/products/:slug', async (req, res) => {
     categoryPath: path,
     /** Website tags ("Overseas"). */
     labels: tagMap.get(product.id) ?? [],
+    /** Approved reviews: average stars and how many (null: none yet). */
+    rating: product.ratingCount > 0 && product.ratingAverage !== null ? { average: product.ratingAverage, count: product.ratingCount } : null,
     /** Businesses pay less for it (the price itself is only for approved business accounts). */
     hasWholesale: variants.some((v) => v.cheaper_wholesale),
     variants: variants.map((v) => {
@@ -546,4 +549,5 @@ storeRouter.use('/orders', storeOrdersRouter);
 storeRouter.use(accountRouter);
 storeRouter.use(wholesaleRouter);
 storeRouter.use(trackRouter);
+storeRouter.use(reviewsRouter);
 storeRouter.use(storeSeoRouter);

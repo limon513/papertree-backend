@@ -7,7 +7,8 @@ import { processImage } from './process.ts';
 import { variantKey } from './view.ts';
 
 /** Resizes an image, saves every width to storage and records it. Returns the media row. */
-export async function storeImage(input: Buffer, originalName: string, uploadedBy: number | null) {
+/** `customerId`: a customer's own upload (a review photo), which only they can attach. */
+export async function storeImage(input: Buffer, originalName: string, uploadedBy: number | null, customerId: number | null = null) {
   const image = await processImage(input);
 
   // e.g. media/2026/11/x7k2p9q4-faber-logo
@@ -28,6 +29,7 @@ export async function storeImage(input: Buffer, originalName: string, uploadedBy
       sizeBytes: image.variants.reduce((sum, v) => sum + v.body.length, 0),
       originalName: originalName.slice(0, 200),
       uploadedBy,
+      customerId,
     })
     .returning();
   return row!;
