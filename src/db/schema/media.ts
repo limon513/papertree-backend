@@ -1,5 +1,6 @@
 import { integer, pgTable, text } from 'drizzle-orm/pg-core';
 import { adminUsers } from './admin.ts';
+import { customers } from './customers.ts';
 import { id, ref, timestamptz } from './_helpers.ts';
 
 /**
@@ -18,5 +19,7 @@ export const media = pgTable('media', {
   originalName: text('original_name'),
   alt: text('alt'),
   uploadedBy: ref('uploaded_by').references(() => adminUsers.id, { onDelete: 'set null' }),
+  /** A customer's own upload (a review photo): only they can attach it. */
+  customerId: ref('customer_id').references(() => customers.id, { onDelete: 'set null' }),
   createdAt: timestamptz('created_at').notNull().defaultNow(),
 });

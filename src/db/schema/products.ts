@@ -66,6 +66,9 @@ export const products = pgTable(
     description: text('description'),
     brandId: ref('brand_id').references(() => brands.id, { onDelete: 'set null' }),
     tags: text('tags').array().notNull().default([]),
+    /** Approved reviews: their count and average rating (kept up to date when staff decide). */
+    ratingCount: integer('rating_count').notNull().default(0),
+    ratingAverage: numeric('rating_average', { precision: 3, scale: 2, mode: 'number' }),
     options: jsonb('options').$type<ProductOption[]>().notNull().default([]),
     specs: jsonb('specs').$type<ProductSpec[]>().notNull().default([]),
     seoTitle: text('seo_title'),

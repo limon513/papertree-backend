@@ -49,6 +49,8 @@ export type CardRow = {
   in_stock: boolean;
   stock_left: string | null;
   is_new: boolean;
+  rating_count: number;
+  rating_average: string | null;
 };
 
 /**
@@ -73,7 +75,7 @@ export function cardsCte(locationId: number) {
       select p.id, p.slug, p.name, b.name as brand_name, b.slug as brand_slug,
         (select pi.media_id from product_images pi where pi.product_id = p.id order by pi.position limit 1) as image_id,
         c.variant_id, c.current_price, c.regular_price, c.variant_count, c.in_stock, c.stock_left,
-        coalesce(p.published_at, p.created_at) > now() - interval '30 days' as is_new,
+        coalesce(p.published_at, p.created_at) > now() - interval '30 days' as is_new, p.rating_count, p.rating_average,
         coalesce(p.published_at, p.created_at) as published, coalesce(s.sold, 0) as sold
       from products p
       left join brands b on b.id = p.brand_id and b.is_active
@@ -215,6 +217,8 @@ export async function cards(where: SQL, order: SQL, limit: number, offset = 0) {
         inStock: r.in_stock,
         lowStock: r.in_stock && stockLeft !== null && stockLeft <= LOW_STOCK ? stockLeft : null,
         isNew: r.is_new,
+        /** Approved reviews: average stars and how many (null: none yet). */
+        rating: r.rating_count > 0 && r.rating_average !== null ? { average: Number(r.rating_average), count: Number(r.rating_count) } : null,
         /** Website tags shown on cards ("Overseas"). */
         labels: tags.get(Number(r.id)) ?? [],
       };
