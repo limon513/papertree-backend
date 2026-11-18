@@ -3,7 +3,7 @@ import type { ZodOpenApiPathsObject } from 'zod-openapi';
 import { errors, json, jsonBody } from '../../docs/common.ts';
 import { locationsSchema } from '../admin/settings/schemas.ts';
 import { trackBody } from './track.ts';
-import { cartBody, checkoutBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
+import { cartBody, checkoutBody, forYouQuery, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
 
 const tags = ['Store (public)'];
 const open = z.object({}).catchall(z.unknown());
@@ -30,8 +30,17 @@ export const storeDocs: ZodOpenApiPathsObject = {
     get: {
       tags,
       summary: 'Home page rows',
-      description: `${note} Banners shown now (hero slider up to 8, tiles up to 2), deals (biggest discount first), new arrivals, best sellers (last 90 days) and one row per main category.`,
+      description: `${note} Banners shown now (hero slider up to 8, tiles up to 2), deals (biggest discount first), new arrivals, best sellers (last 90 days), rows for the 4 best-selling main categories, and the first page of "Just for you" (forYou).`,
       responses: { '200': json(open.meta({ id: 'StoreHome' })) },
+    },
+  },
+  '/v1/store/for-you': {
+    get: {
+      tags,
+      summary: '"Just for you" products, a page at a time',
+      description: `${note} Every product in stock, the most bought first; products from the categories in like come higher up. 18 a page, the same order on every page (nothing repeats or is skipped).`,
+      requestParams: { query: forYouQuery },
+      responses: { '200': json(open.meta({ id: 'StoreForYou' })), ...errors(400) },
     },
   },
   '/v1/store/products': {

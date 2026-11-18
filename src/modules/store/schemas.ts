@@ -35,6 +35,26 @@ export type ProductListQuery = z.infer<typeof productListQuery>;
 
 export const suggestQuery = z.object({ q: z.string().trim().min(1).max(100) });
 
+/** "Just for you" pages: at most this many (18 products each). */
+export const FOR_YOU_MAX_PAGES = 50;
+
+export const forYouQuery = z.object({
+  page: z.coerce.number().int().min(1).max(FOR_YOU_MAX_PAGES).catch(1),
+  like: z
+    .string()
+    .max(400)
+    .optional()
+    .catch(undefined)
+    .transform((v) =>
+      (v ?? '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => /^[a-z0-9-]{1,120}$/.test(s))
+        .slice(0, 5),
+    )
+    .meta({ description: 'Category slugs the shopper looked at lately, comma separated (at most 5): their products come higher up' }),
+});
+
 /** One search made on the website, as the browser reports it. */
 export const searchLogBody = z
   .object({
