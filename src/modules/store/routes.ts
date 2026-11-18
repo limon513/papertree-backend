@@ -8,7 +8,7 @@ import { notFound } from '../../lib/errors.ts';
 import { advanceFor, defaultLocationId } from '../admin/orders/service.ts';
 import { AREAS, DISTRICTS, getSettings, listZones, LOCATIONS, quote } from '../admin/settings/service.ts';
 import { activeCategories, cards, cardTags, CURRENT_PRICE, facets, imagesById, inCategories, LOW_STOCK, SORTS, withTags } from './catalog.ts';
-import { cartBody, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
+import { cartBody, FOR_YOU_MAX_PAGES, forYouQuery, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
 import { nameMatches, planSearch, productBySku, searchRank, searchWhere } from './search.ts';
 import { checkCouponUse, cleanCode, codeGuard, CouponError, couponFor, couponLabel, findCoupon, shortfallMessage } from '../admin/coupons/service.ts';
 import { currentCustomer } from './account/session.ts';
@@ -117,15 +117,55 @@ async function liveBanners() {
   return { hero: shown('hero', 8), tiles: shown('tile', 2) };
 }
 
+/** How many category rows the home page shows (the best-selling main categories), and products in each. */
+const HOME_ROWS = 4;
+const ROW_SIZE = 12;
+/** "Just for you" products per page (the home page's endless list). */
+const FOR_YOU_PAGE = 18;
+
+/** Main categories, best-selling first (last 90 days, counting their sub-categories), then the shop's own order. */
+async function topCategoriesBySales(cats: Awaited<ReturnType<typeof activeCategories>>) {
+  const { rows } = await db.execute<{ category_id: string; sold: string }>(sql`
+    select pc.category_id, sum(oi.quantity) as sold
+    from order_items oi
+    join orders o on o.id = oi.order_id
+    join product_categories pc on pc.product_id = oi.product_id
+    where o.status not in ('cancelled', 'returned') and o.created_at > now() - interval '90 days'
+    group by pc.category_id`);
+  const soldIn = new Map(rows.map((r) => [Number(r.category_id), Number(r.sold)]));
+  const sales = (id: number) => [id, ...cats.descendants(id)].reduce((sum, cid) => sum + (soldIn.get(cid) ?? 0), 0);
+  return (cats.children.get(null) ?? [])
+    .filter((c) => cats.count(c.id) >= 3)
+    .map((c, order) => ({ c, order, sold: sales(c.id) }))
+    .sort((a, b) => b.sold - a.sold || a.order - b.order)
+    .map((x) => x.c);
+}
+
+/**
+ * "Just for you": every product in stock, the most bought first. Products from the categories the
+ * shopper looked at lately (`like`, sent by their browser) come higher up. The order never changes
+ * between pages, so paging on never repeats or skips a product.
+ */
+async function forYou(cats: Awaited<ReturnType<typeof activeCategories>>, page: number, like: string[] = []) {
+  const liked = cats.all.filter((c) => like.includes(c.slug)).flatMap((c) => [c.id, ...cats.descendants(c.id)]);
+  const order = liked.length
+    ? sql`(c.sold + case when ${inCategories(liked)} then greatest(c.sold, 2) + 5 else 0 end) desc, c.published desc`
+    : SORTS.popular;
+  const { items, total } = await cards(sql`c.in_stock`, order, FOR_YOU_PAGE, (page - 1) * FOR_YOU_PAGE);
+  return { items, page, pages: Math.min(FOR_YOU_MAX_PAGES, Math.max(1, Math.ceil(total / FOR_YOU_PAGE))) };
+}
+
 storeRouter.get('/home', async (_req, res) => {
   const cats = await activeCategories();
-  const top = (cats.children.get(null) ?? []).filter((c) => cats.count(c.id) >= 3);
-  const [shownBanners, deals, fresh, popular, ...rails] = await Promise.all([
+  // A few rows, not one per category: the page stays light, and "Just for you" carries on below.
+  const top = (await topCategoriesBySales(cats)).slice(0, HOME_ROWS + 2);
+  const [shownBanners, deals, fresh, popular, picks, ...rails] = await Promise.all([
     liveBanners(),
     cards(sql`c.regular_price > c.current_price and c.in_stock`, SORTS.deals, 12),
     cards(sql`c.in_stock`, SORTS.newest, 12),
     cards(sql`c.in_stock and c.sold > 0`, SORTS.popular, 12),
-    ...top.map((c) => cards(and_([inCategories([c.id, ...cats.descendants(c.id)]), sql`c.in_stock`]), SORTS.popular, 12)),
+    forYou(cats, 1),
+    ...top.map((c) => cards(and_([inCategories([c.id, ...cats.descendants(c.id)]), sql`c.in_stock`]), SORTS.popular, ROW_SIZE)),
   ]);
   cache(res, 60).json({
     banners: shownBanners,
@@ -134,8 +174,16 @@ storeRouter.get('/home', async (_req, res) => {
     bestSellers: popular.items,
     categoryRows: top
       .map((c, i) => ({ category: { name: c.name, slug: c.slug, icon: c.icon }, products: rails[i]!.items }))
-      .filter((row) => row.products.length >= 3),
+      .filter((row) => row.products.length >= 3)
+      .slice(0, HOME_ROWS),
+    forYou: picks,
   });
+});
+
+/** More "Just for you" products, a page at a time (the home page asks as the shopper scrolls). */
+storeRouter.get('/for-you', async (req, res) => {
+  const q = forYouQuery.parse(req.query);
+  cache(res, 60).json(await forYou(await activeCategories(), q.page, q.like));
 });
 
 // ---- Product lists: category, brand, search, deals ----
