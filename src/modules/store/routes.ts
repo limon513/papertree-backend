@@ -10,6 +10,7 @@ import { AREAS, DISTRICTS, getSettings, listZones, LOCATIONS, quote } from '../a
 import { activeCategories, cards, cardTags, CURRENT_PRICE, facets, imagesById, inCategories, LOW_STOCK, SORTS, withTags } from './catalog.ts';
 import { cartBody, FOR_YOU_MAX_PAGES, forYouQuery, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
 import { nameMatches, planSearch, productBySku, searchRank, searchWhere } from './search.ts';
+import { popularSearches, suggestedSearches } from './search-terms.ts';
 import { checkCouponUse, cleanCode, codeGuard, CouponError, couponFor, couponLabel, findCoupon, shortfallMessage } from '../admin/coupons/service.ts';
 import { currentCustomer } from './account/session.ts';
 import { storeOrdersRouter } from './orders.ts';
@@ -309,9 +310,9 @@ storeRouter.post('/search-log', async (req, res) => {
 /** As-you-type search: a few products, matching categories and brands. */
 storeRouter.get('/suggest', async (req, res) => {
   const { q } = suggestQuery.parse(req.query);
-  const plan = await planSearch(q);
+  const [plan, terms] = await Promise.all([planSearch(q), suggestedSearches(q)]);
   if (!plan) {
-    cache(res, 60).json({ products: [], total: 0, categories: [], brands: [], search: null });
+    cache(res, 60).json({ terms, products: [], total: 0, categories: [], brands: [], search: null });
     return;
   }
   const [cats, brandRows] = await Promise.all([
@@ -325,6 +326,8 @@ storeRouter.get('/suggest', async (req, res) => {
     partial = found.total > 0;
   }
   cache(res, 60).json({
+    /** Suggested searches: what shoppers searched that starts with the typed words. */
+    terms,
     products: found.items,
     total: found.total,
     categories: cats.all
@@ -334,6 +337,11 @@ storeRouter.get('/suggest', async (req, res) => {
     brands: brandRows.filter((b) => nameMatches(b.name, plan)).slice(0, 3),
     search: { query: plan.query, searched: plan.searched, corrected: plan.corrected, partial },
   });
+});
+
+/** Popular searches lately (only ones that found products), for the search box before typing. */
+storeRouter.get('/popular-searches', async (_req, res) => {
+  cache(res, 600).json({ terms: await popularSearches() });
 });
 
 // ---- Product page ----
