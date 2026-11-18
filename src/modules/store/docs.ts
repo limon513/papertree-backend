@@ -30,15 +30,15 @@ export const storeDocs: ZodOpenApiPathsObject = {
     get: {
       tags,
       summary: 'Home page rows',
-      description: `${note} Banners shown now (hero slider up to 8, tiles up to 2), deals (biggest discount first), new arrivals, best sellers (last 90 days), rows for the 4 best-selling main categories, and the first page of "Just for you" (forYou).`,
+      description: `${note} Banners shown now (hero slider up to 8, tiles up to 2), deals (biggest discount first), new arrivals, best sellers (last 90 days), "All products" (allProducts: 12, mixed from the main categories, none already in the rows above) and "Just for you" (forYou: 12 popular products; the website asks /for-you with the shopper's recent categories).`,
       responses: { '200': json(open.meta({ id: 'StoreHome' })) },
     },
   },
   '/v1/store/for-you': {
     get: {
       tags,
-      summary: '"Just for you" products, a page at a time',
-      description: `${note} Every product in stock, the most bought first; products from the categories in like come higher up. 18 a page, the same order on every page (nothing repeats or is skipped).`,
+      summary: '"Just for you" products',
+      description: `${note} Products in stock from the categories in like first, then the rest; the most bought first in each. 12 a page, the same order on every page.`,
       requestParams: { query: forYouQuery },
       responses: { '200': json(open.meta({ id: 'StoreForYou' })), ...errors(400) },
     },

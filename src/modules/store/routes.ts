@@ -117,11 +117,11 @@ async function liveBanners() {
   return { hero: shown('hero', 8), tiles: shown('tile', 2) };
 }
 
-/** How many category rows the home page shows (the best-selling main categories), and products in each. */
-const HOME_ROWS = 4;
-const ROW_SIZE = 12;
-/** "Just for you" products per page (the home page's endless list). */
-const FOR_YOU_PAGE = 18;
+/** Home "All products": this many, mixed from the main categories (best-selling categories first). */
+const ALL_SIZE = 12;
+const ALL_CATEGORIES = 6;
+/** "Just for you" products (one set on the home page). */
+const FOR_YOU_PAGE = 12;
 
 /** Main categories, best-selling first (last 90 days, counting their sub-categories), then the shop's own order. */
 async function topCategoriesBySales(cats: Awaited<ReturnType<typeof activeCategories>>) {
@@ -142,45 +142,72 @@ async function topCategoriesBySales(cats: Awaited<ReturnType<typeof activeCatego
 }
 
 /**
- * "Just for you": every product in stock, the most bought first. Products from the categories the
- * shopper looked at lately (`like`, sent by their browser) come higher up. The order never changes
+ * "Just for you": products in stock from the categories the shopper looked at lately (`like`, sent by
+ * their browser) first, then the rest; the most bought first in each. The order never changes
  * between pages, so paging on never repeats or skips a product.
  */
 async function forYou(cats: Awaited<ReturnType<typeof activeCategories>>, page: number, like: string[] = []) {
   const liked = cats.all.filter((c) => like.includes(c.slug)).flatMap((c) => [c.id, ...cats.descendants(c.id)]);
   const order = liked.length
-    ? sql`(c.sold + case when ${inCategories(liked)} then greatest(c.sold, 2) + 5 else 0 end) desc, c.published desc`
+    ? sql`(case when ${inCategories(liked)} then 0 else 1 end), c.sold desc, c.published desc`
     : SORTS.popular;
   const { items, total } = await cards(sql`c.in_stock`, order, FOR_YOU_PAGE, (page - 1) * FOR_YOU_PAGE);
   return { items, page, pages: Math.min(FOR_YOU_MAX_PAGES, Math.max(1, Math.ceil(total / FOR_YOU_PAGE))) };
 }
 
+/**
+ * Home "All products": a taste of the whole shop. Taken in turn from the main categories (best-selling
+ * first), leaving out products already in the rows above, then topped up with popular ones.
+ */
+function mixOfCategories<T extends { id: number }>(perCategory: T[][], fillers: T[], skip: Set<number>) {
+  const picked: T[] = [];
+  const seen = new Set(skip);
+  const take = (p: T) => {
+    if (picked.length < ALL_SIZE && !seen.has(p.id)) {
+      seen.add(p.id);
+      picked.push(p);
+    }
+  };
+  for (let i = 0; picked.length < ALL_SIZE && perCategory.some((list) => i < list.length); i++) {
+    for (const list of perCategory) {
+      const p = list[i];
+      if (p) take(p);
+    }
+  }
+  for (const p of fillers) take(p);
+  return picked;
+}
+
 storeRouter.get('/home', async (_req, res) => {
   const cats = await activeCategories();
-  // A few rows, not one per category: the page stays light, and "Just for you" carries on below.
-  const top = (await topCategoriesBySales(cats)).slice(0, HOME_ROWS + 2);
-  const [shownBanners, deals, fresh, popular, picks, ...rails] = await Promise.all([
+  const top = (await topCategoriesBySales(cats)).slice(0, ALL_CATEGORIES);
+  const [shownBanners, deals, fresh, popular, picks, fillers, ...perCategory] = await Promise.all([
     liveBanners(),
     cards(sql`c.regular_price > c.current_price and c.in_stock`, SORTS.deals, 12),
     cards(sql`c.in_stock`, SORTS.newest, 12),
     cards(sql`c.in_stock and c.sold > 0`, SORTS.popular, 12),
     forYou(cats, 1),
-    ...top.map((c) => cards(and_([inCategories([c.id, ...cats.descendants(c.id)]), sql`c.in_stock`]), SORTS.popular, ROW_SIZE)),
+    cards(sql`c.in_stock`, SORTS.popular, 48),
+    ...top.map((c) => cards(and_([inCategories([c.id, ...cats.descendants(c.id)]), sql`c.in_stock`]), SORTS.popular, 6)),
   ]);
+  const above = new Set([...deals.items, ...fresh.items, ...popular.items].map((p) => p.id));
   cache(res, 60).json({
     banners: shownBanners,
     deals: deals.items,
     newArrivals: fresh.items,
     bestSellers: popular.items,
-    categoryRows: top
-      .map((c, i) => ({ category: { name: c.name, slug: c.slug, icon: c.icon }, products: rails[i]!.items }))
-      .filter((row) => row.products.length >= 3)
-      .slice(0, HOME_ROWS),
+    allProducts: mixOfCategories(
+      perCategory.map((r) => r.items),
+      fillers.items,
+      above,
+    ),
+    /** No longer filled (the home page shows "All products" instead); kept empty so older website versions keep working. */
+    categoryRows: [],
     forYou: picks,
   });
 });
 
-/** More "Just for you" products, a page at a time (the home page asks as the shopper scrolls). */
+/** "Just for you" products (`like`: the categories the shopper looked at lately, from their browser). */
 storeRouter.get('/for-you', async (req, res) => {
   const q = forYouQuery.parse(req.query);
   cache(res, 60).json(await forYou(await activeCategories(), q.page, q.like));
