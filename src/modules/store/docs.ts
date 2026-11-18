@@ -174,6 +174,41 @@ export const storeDocs: ZodOpenApiPathsObject = {
       responses: { '200': json(open.meta({ id: 'StorePayCod' })), ...errors(404, 409, 429) },
     },
   },
+  '/v1/store/cards': {
+    get: {
+      tags,
+      summary: 'Product cards by id',
+      description: `${note} ids: comma separated (up to 60). In that order; products no longer for sale are left out.`,
+      requestParams: { query: z.object({ ids: z.string() }) },
+      responses: { '200': json(open.meta({ id: 'StoreCardsById' })) },
+    },
+  },
+  '/v1/store/me/wishlist/ids': {
+    get: { tags, summary: 'Saved product ids (the hearts)', description: 'Signed in: their saved product ids, newest first. Signed out: an empty list.', responses: { '200': json(open.meta({ id: 'StoreWishlistIds' })) } },
+  },
+  '/v1/store/me/wishlist': {
+    get: {
+      tags,
+      summary: 'The wishlist, with what changed',
+      description: 'Signed in. Newest first: price and stock now, cheaper (taka off since saved), backInStock. Products no longer for sale are left out.',
+      responses: { '200': json(open.meta({ id: 'StoreWishlist' })), ...errors(401) },
+    },
+  },
+  '/v1/store/me/wishlist/{productId}': {
+    put: {
+      tags,
+      summary: 'Save a product',
+      description: 'Signed in. Saving again changes nothing. Up to 200 products (409 when full). The price and stock now are kept, for "cheaper" and "back in stock".',
+      requestParams: { path: z.object({ productId: z.string() }) },
+      responses: { '204': { description: 'Saved' }, ...errors(401, 404, 409, 429) },
+    },
+    delete: {
+      tags,
+      summary: 'Remove a product',
+      requestParams: { path: z.object({ productId: z.string() }) },
+      responses: { '204': { description: 'Removed' }, ...errors(401, 429) },
+    },
+  },
   '/v1/webhooks/sslcommerz/ipn': {
     post: {
       tags: ['Webhooks'],

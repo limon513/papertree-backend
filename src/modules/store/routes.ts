@@ -21,6 +21,7 @@ import { getIntegration } from '../admin/integrations/service.ts';
 import { businessOf, termsOf, WHOLESALE_PRICE, wholesaleRouter } from './wholesale.ts';
 import { trackRouter } from './track.ts';
 import { reviewsRouter } from './reviews.ts';
+import { wishlistRouter } from './wishlist.ts';
 
 /** Public API for the website. Mounted at /v1/store. Shoppers may sign in (account routes). */
 export const storeRouter = Router();
@@ -637,4 +638,5 @@ storeRouter.use(accountRouter);
 storeRouter.use(wholesaleRouter);
 storeRouter.use(trackRouter);
 storeRouter.use(reviewsRouter);
+storeRouter.use(wishlistRouter);
 storeRouter.use(storeSeoRouter);
