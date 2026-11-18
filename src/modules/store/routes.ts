@@ -11,6 +11,7 @@ import { activeCategories, cards, cardTags, CURRENT_PRICE, facets, imagesById, i
 import { cartBody, FOR_YOU_MAX_PAGES, forYouQuery, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
 import { nameMatches, planSearch, productBySku, searchRank, searchWhere } from './search.ts';
 import { popularSearches, suggestedSearches } from './search-terms.ts';
+import { onlinePaymentReady } from '../payments/sslcommerz.ts';
 import { checkCouponUse, cleanCode, codeGuard, CouponError, couponFor, couponLabel, findCoupon, shortfallMessage } from '../admin/coupons/service.ts';
 import { currentCustomer } from './account/session.ts';
 import { storeOrdersRouter } from './orders.ts';
@@ -37,13 +38,14 @@ const and_ = (parts: (SQL | undefined)[]) => {
 // ---- Menus, footer, store details ----
 
 storeRouter.get('/catalog', async (_req, res) => {
-  const [cats, brandRows, store, google, footerPages, checkout] = await Promise.all([
+  const [cats, brandRows, store, google, footerPages, checkout, online] = await Promise.all([
     activeCategories(),
     db.select().from(brands).where(eq(brands.isActive, true)).orderBy(sql`${brands.isFeatured} desc`, asc(sql`lower(${brands.name})`)),
     getSettings('store'),
     getIntegration('google'),
     db.select({ title: pages.title, slug: pages.slug }).from(pages).where(and(eq(pages.isPublished, true), eq(pages.showInFooter, true))).orderBy(asc(pages.sortOrder), asc(pages.id)),
     getSettings('checkout'),
+    onlinePaymentReady(),
   ]);
   const g = google.settings;
   const images = await imagesById([...cats.all.map((c) => c.imageId), ...brandRows.map((b) => b.imageId), store.logoImageId]);
@@ -72,6 +74,8 @@ storeRouter.get('/catalog', async (_req, res) => {
     google: g.enabled && g.apiKey && g.authDomain && g.projectId && g.appId ? { apiKey: g.apiKey, authDomain: g.authDomain, projectId: g.projectId, appId: g.appId } : null,
     // Content pages linked in the footer (About, Terms...).
     pages: footerPages,
+    // Paying online at checkout (SSLCommerz: bKash, Nagad, cards…). sandbox: test money only.
+    onlinePayment: online,
     // The shop's wholesale terms, for the Wholesale page (the same ones checkout shows a business).
     wholesale: {
       advancePercent: checkout.wholesale.advancePercent,

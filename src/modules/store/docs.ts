@@ -149,9 +149,38 @@ export const storeDocs: ZodOpenApiPathsObject = {
     get: {
       tags,
       summary: 'An order, for its thank-you page',
-      description: 'The token from placing the order is the only key (no sign-in). Items, address, totals and status.',
+      description:
+        'The token from placing the order is the only key (no sign-in). Items, address, totals and status, and paying online: online.available, online.amount (a business’s advance, else what is due) and online.lastTry. A try still waiting for an answer is asked from SSLCommerz first (at most every 30 s).',
       requestParams: { path: z.object({ token: z.string() }) },
       responses: { '200': json(open.meta({ id: 'StoreOrder' })), ...errors(404) },
+    },
+  },
+  '/v1/store/orders/{token}/pay': {
+    post: {
+      tags,
+      summary: 'Pay an order online now',
+      description:
+        'A new try with SSLCommerz: answers payUrl (its payment page). The amount is worked out by the shop. After paying, SSLCommerz sends the shopper back to /v1/webhooks/sslcommerz/return/{success|fail|cancel}, which checks the payment and goes on to the order’s thank-you page. 409 when nothing is left to pay.',
+      requestParams: { path: z.object({ token: z.string() }) },
+      responses: { '200': json(open.meta({ id: 'StorePayStart' })), ...errors(400, 404, 409, 429) },
+    },
+  },
+  '/v1/store/orders/{token}/cod': {
+    post: {
+      tags,
+      summary: 'Pay cash on delivery instead of online',
+      description: 'Only while nothing is paid online (409 otherwise).',
+      requestParams: { path: z.object({ token: z.string() }) },
+      responses: { '200': json(open.meta({ id: 'StorePayCod' })), ...errors(404, 409, 429) },
+    },
+  },
+  '/v1/webhooks/sslcommerz/ipn': {
+    post: {
+      tags: ['Webhooks'],
+      summary: 'SSLCommerz payment notification (IPN)',
+      description:
+        'Form post from SSLCommerz (tran_id, val_id, status…). Nothing in it is trusted: a payment counts only after the validation API confirms this try, in BDT, for exactly the amount asked, and only once. 404 for an unknown tran_id.',
+      responses: { '200': { description: 'OK' }, ...errors(400, 404) },
     },
   },
 };

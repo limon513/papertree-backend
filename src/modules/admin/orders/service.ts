@@ -1,7 +1,7 @@
 import { applyBulk, type BulkRules } from '../../../lib/bulk.ts';
 import { checkCouponUse, cleanCode, CouponError, couponFor, findCoupon, shortfallMessage } from '../coupons/service.ts';
 import type { OrderType } from '../../../db/schema/orders.ts';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../../db/client.ts';
 import { coupons,
   customers,
@@ -511,6 +511,27 @@ async function recordPayment(
 export async function addPayment(id: number, payment: Parameters<typeof recordPayment>[2], adminUserId: number) {
   return db.transaction(async (tx) => recordPayment(tx, await lockOrder(tx, id), payment, adminUserId));
 }
+
+/**
+ * A payment the shop's systems confirmed (online payment), inside the caller's transaction: the order
+ * is locked, the payment row added, paid amount and status updated, and the history noted.
+ * Answers the new payment's id and the order as it was before.
+ */
+export async function recordSystemPayment(tx: Tx, orderId: number, payment: Parameters<typeof recordPayment>[2], extraNote?: string) {
+  const order = await lockOrder(tx, orderId);
+  await recordPayment(tx, order, payment, null);
+  const [row] = await tx
+    .select({ id: orderPayments.id })
+    .from(orderPayments)
+    .where(eq(orderPayments.orderId, orderId))
+    .orderBy(desc(orderPayments.id))
+    .limit(1);
+  if (extraNote) await event(tx, orderId, 'payment', extraNote, null);
+  return { paymentId: row!.id, order };
+}
+
+/** A note in the order's history from the shop's systems (no staff member). */
+export const systemNote = (tx: Tx, orderId: number, message: string) => event(tx, orderId, 'payment', message, null);
 
 export async function setStatus(
   id: number,

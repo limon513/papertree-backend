@@ -30,6 +30,19 @@ const schema = z
       .default('false')
       .transform((v) => v === 'true'),
 
+    /**
+     * This API's own public address. SSLCommerz sends shoppers back here after paying and calls the
+     * IPN here, so on the live server it must be the https address (e.g. https://papertree-api.bitnbyteit.com).
+     */
+    API_PUBLIC_URL: z.string().url().default('http://localhost:4000'),
+    /** The SSLCommerz sandbox (test money). Tests point it at a fake server. */
+    SSLCOMMERZ_SANDBOX_URL: z.string().url().default('https://sandbox.sslcommerz.com'),
+    /** Away from the live server only the SSLCommerz sandbox (test money) is used, unless this is true. */
+    SSLCOMMERZ_ALLOW_LIVE: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+
     // Uploaded images: any S3-compatible storage (Neon Object Storage, AWS S3, ...),
     // or the local uploads/ folder when S3 is not set up.
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),

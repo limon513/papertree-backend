@@ -99,6 +99,13 @@ function advanceOf(d: Loaded) {
   return { toPay, rest: Math.round((o.total - o.advanceRequired) * 100) / 100, how: d.payAdvance };
 }
 
+/** How the total is paid, as the email can say it when it is sent. */
+function paidHow(o: Loaded['order']) {
+  if (o.paymentStatus === 'paid') return { label: 'Total (paid online)', state: 'paid' as const };
+  if (o.paymentMethod === 'online') return { label: 'Total', state: 'online' as const };
+  return { label: 'Total (cash on delivery)', state: 'cod' as const };
+}
+
 function customerEmail(d: Loaded) {
   const o = d.order;
   const first = o.customerName.split(' ')[0] ?? o.customerName;
@@ -106,7 +113,16 @@ function customerEmail(d: Loaded) {
   const place = placeOf(o);
   const wholesale = o.type === 'wholesale';
   const adv = advanceOf(d);
+  const how = paidHow(o);
   const kind = wholesale ? 'wholesale order' : 'order';
+  // Paid online, still to pay online (it may not have gone through), or cash on delivery.
+  const payLineText =
+    how.state === 'paid'
+      ? 'It is paid: thank you!'
+      : how.state === 'online'
+        ? 'If your online payment did not go through, pay from your order page, or pay in cash when it arrives.'
+        : `Pay ${taka(o.total)} in cash when it arrives.`;
+  const payLineHtml = how.state === 'cod' ? `Pay <strong>${taka(o.total)}</strong> in cash when it arrives.` : esc(payLineText);
   const when = d.deliveryTime ? `, usually in ${d.deliveryTime}` : '';
   const whenHtml = d.deliveryTime ? `, usually in <strong>${esc(d.deliveryTime)}</strong>` : '';
   const para = (html: string) => `<p style="margin:0 0 8px;font-size:15px;line-height:1.55">${html}</p>`;
@@ -122,10 +138,10 @@ function customerEmail(d: Loaded) {
         ],
       }
     : {
-        html: para(`We will call you on <strong>${esc(o.phone)}</strong> soon to confirm it. Then we send it to <strong>${esc(place)}</strong>${whenHtml}. Pay <strong>${taka(o.total)}</strong> in cash when it arrives.`),
-        text: [`We will call you on ${o.phone} soon to confirm it. Then we send it to ${place}${when}.`],
+        html: para(`We will call you on <strong>${esc(o.phone)}</strong> soon to confirm it. Then we send it to <strong>${esc(place)}</strong>${whenHtml}. ${payLineHtml}`),
+        text: [`We will call you on ${o.phone} soon to confirm it. Then we send it to ${place}${when}. ${payLineText}`],
       };
-  const totalLabel = wholesale ? 'Total' : 'Total (cash on delivery)';
+  const totalLabel = wholesale && how.state === 'cod' ? 'Total' : how.label;
   const html = layout(
     d,
     `Thank you, ${first}! Your ${kind} #${o.number} is placed.`,
@@ -168,13 +184,14 @@ function shopEmail(d: Loaded) {
 <p style="margin:0;font-size:14px;color:#52525b">${esc(placeOf(o))}${o.deliveryZoneName ? ` (${esc(o.deliveryZoneName)})` : ''}</p>
 ${collect ? `<p style="font-size:14px;background:#ecfdf5;padding:8px 12px;border-radius:8px">${esc(collect)}</p>` : ''}
 ${o.customerNote ? `<p style="font-size:14px;background:#fffbeb;padding:8px 12px;border-radius:8px">Note: ${esc(o.customerNote)}</p>` : ''}
-${itemsTable(d, wholesale ? 'Total' : 'Total (cash on delivery)')}
+${itemsTable(d, paidHow(o).state === 'paid' ? 'Total (paid online)' : paidHow(o).state === 'online' ? 'Total (online payment not finished)' : wholesale ? 'Total' : 'Total (cash on delivery)')}
 ${button(link, 'Open the order')}`,
   );
   const text = [
     title,
     `${o.customerName}, ${o.phone}${o.email ? `, ${o.email}` : ''}`,
     placeOf(o),
+    `Payment: ${paidHow(o).state === 'paid' ? 'paid online' : paidHow(o).state === 'online' ? 'online, not finished yet' : 'cash on delivery'}`,
     ...(collect ? [collect] : []),
     ...(o.customerNote ? [`Note: ${o.customerNote}`] : []),
     '',

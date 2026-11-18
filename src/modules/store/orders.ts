@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { asc, eq, type SQL } from 'drizzle-orm';
+import { and, asc, eq, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.ts';
-import { customers, deliveryZones, orderItems, orders } from '../../db/schema/index.ts';
-import { forbidden, notFound } from '../../lib/errors.ts';
+import { customers, deliveryZones, onlinePayments, orderItems, orders } from '../../db/schema/index.ts';
+import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.ts';
 import { QUEUES, sendJob } from '../../jobs/boss.ts';
 import { logger } from '../../lib/logger.ts';
 import { codeGuard, CouponError, tooManyTries } from '../admin/coupons/service.ts';
@@ -15,6 +15,9 @@ import { isApprovedBusiness } from '../admin/customers/service.ts';
 import { getSettings } from '../admin/settings/service.ts';
 import { checkoutBody } from './schemas.ts';
 import { courierView } from './track.ts';
+import { systemNote } from '../admin/orders/service.ts';
+import { latestTry, MIN_ONLINE, onlineAmount, startPayment } from '../payments/service.ts';
+import { onlinePaymentReady } from '../payments/sslcommerz.ts';
 
 /** Orders from the website. Mounted at /v1/store/orders. */
 export const storeOrdersRouter = Router();
@@ -32,7 +35,31 @@ const orderLimiter = rateLimit({
   message: { error: { code: 'TOO_MANY_REQUESTS', message: 'Too many orders from this connection. Please call us to order.' } },
 });
 
-const placed = (o: { number: number; publicToken: string | null; total: number }) => ({ number: o.number, token: o.publicToken, total: o.total });
+const placed = (o: { number: number; publicToken: string | null; total: number }, pay?: { url?: string; error?: string }) => ({
+  number: o.number,
+  token: o.publicToken,
+  total: o.total,
+  /** Paying online: the payment page to go to now, or why it could not open (the order is placed either way). */
+  ...(pay?.url && { payUrl: pay.url }),
+  ...(pay?.error && { payError: pay.error }),
+});
+
+/** Paying online, a few tries per visitor: plenty for people, not for someone hammering SSLCommerz. */
+const payLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 15,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: { code: 'TOO_MANY_REQUESTS', message: 'Too many tries. Please wait a few minutes, or choose cash on delivery.' } },
+});
+
+/** An order by the secret token in the shopper's "thank you" link. */
+async function byToken(token: string) {
+  if (!/^[\w-]{20,40}$/.test(token)) throw notFound('Order not found');
+  const [o] = await db.select().from(orders).where(eq(orders.publicToken, token));
+  if (!o) throw notFound('Order not found');
+  return o;
+}
 
 async function byRequest(requestId: string) {
   const [o] = await db.select({ number: orders.number, publicToken: orders.publicToken, total: orders.total }).from(orders).where(eq(orders.requestId, requestId));
@@ -64,6 +91,8 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
   if (couponCode && !codeGuard.allowed(req.ip)) throw tooManyTries();
   // An approved business (signed in) orders at wholesale prices and terms; everyone else retail.
   const wholesale = !!me && isApprovedBusiness(me);
+  // Paying online only when the shop has it on (checked before the order is made).
+  if (paymentMethod === 'online' && !(await onlinePaymentReady())) throw badRequest('Online payment is not available right now. Please choose cash on delivery.');
   try {
     const order = await createOrder(
       {
@@ -84,9 +113,19 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
     // A first order from a new number signs them in, so the next order is quicker. Such a sign-in ends
     // as soon as someone confirms that number with a code.
     if (!me && order.newCustomer) await signIn(res, req, order.customerId, 'order');
-    res.status(201).json(placed(order));
+    // Paying online: the payment page opens now. If it cannot, the order stays (pay later, or cash on delivery).
+    let pay: { url?: string; error?: string } | undefined;
+    if (paymentMethod === 'online') {
+      const [row] = await db.select().from(orders).where(eq(orders.id, order.id));
+      pay = await startPayment(row!).then(
+        (p) => ({ url: p.url }),
+        (err: Error) => ({ error: err.message }),
+      );
+    }
+    res.status(201).json(placed(order, pay));
     // Emails go out in the background: the shopper never waits for them, and a failure never undoes the order.
-    sendJob(QUEUES.orderPlaced, { orderId: order.id }).catch((err) => logger.error({ err, order: order.number }, 'Could not queue the order emails'));
+    // Paying online: a few minutes later, so the emails can say whether it is paid.
+    sendJob(QUEUES.orderPlaced, { orderId: order.id }, paymentMethod === 'online' ? { startAfter: 180 } : {}).catch((err) => logger.error({ err, order: order.number }, 'Could not queue the order emails'));
     // Cash on delivery: the customer's courier record, for staff to see before confirming.
     sendJob(QUEUES.courierCheck, { phone }).catch((err) => logger.error({ err, order: order.number }, 'Could not queue the courier check'));
   } catch (err) {
@@ -155,9 +194,43 @@ export async function orderView(where: SQL) {
 
 /** The shopper's order, for the "thank you" page. The token in the link is the only key: no sign-in. */
 storeOrdersRouter.get('/:token', async (req, res) => {
-  const token = String(req.params.token);
-  if (!/^[\w-]{20,40}$/.test(token)) throw notFound('Order not found');
-  const view = await orderView(eq(orders.publicToken, token));
-  if (!view) throw notFound('Order not found');
-  res.set('cache-control', 'no-store').json(view);
+  const o = await byToken(String(req.params.token));
+  // A payment still waiting for an answer is looked up first (it may have just been paid).
+  const [last, ready] = await Promise.all([latestTry(o.id), onlinePaymentReady()]);
+  const [now] = await db.select().from(orders).where(eq(orders.id, o.id));
+  const view = await orderView(eq(orders.id, o.id));
+  if (!view || !now) throw notFound('Order not found');
+  const amount = onlineAmount(now);
+  res.set('cache-control', 'no-store').json({
+    ...view,
+    paymentStatus: now.paymentStatus,
+    /** Paying online: can it be paid now (and how much), and the latest try. */
+    online: { available: ready && amount >= MIN_ONLINE, amount, lastTry: last },
+  });
+});
+
+/** Pay the order online now (a new try): answers the payment page to go to. */
+storeOrdersRouter.post('/:token/pay', payLimiter, async (req, res) => {
+  const o = await byToken(String(req.params.token));
+  const pay = await startPayment(o);
+  res.json({ payUrl: pay.url, amount: pay.amount });
+});
+
+/** Pay cash on delivery instead of online (only while nothing is paid online). */
+storeOrdersRouter.post('/:token/cod', payLimiter, async (req, res) => {
+  const o = await byToken(String(req.params.token));
+  if (o.paymentMethod === 'cod') {
+    res.json({ paymentMethod: 'cod' });
+    return;
+  }
+  if (o.status === 'cancelled' || o.status === 'returned' || o.status === 'delivered') throw conflict('This order cannot be changed any more.');
+  await db.transaction(async (tx) => {
+    // The order is locked. A payment confirmed at this very moment is still counted afterwards: the order then shows paid.
+    const [locked] = await tx.select().from(orders).where(eq(orders.id, o.id)).for('update');
+    const [paid] = await tx.select({ id: onlinePayments.id }).from(onlinePayments).where(and(eq(onlinePayments.orderId, o.id), eq(onlinePayments.status, 'paid'))).limit(1);
+    if (paid || (locked?.paidAmount ?? 0) > 0) throw conflict('This order is already paid online.');
+    await tx.update(orders).set({ paymentMethod: 'cod' }).where(eq(orders.id, o.id));
+    await systemNote(tx, o.id, 'The customer chose cash on delivery instead of paying online');
+  });
+  res.json({ paymentMethod: 'cod' });
 });
