@@ -54,11 +54,19 @@ export const storeDocs: ZodOpenApiPathsObject = {
       responses: { '200': json(open.meta({ id: 'StoreProductList' })), ...errors(400, 404) },
     },
   },
+  '/v1/store/popular-searches': {
+    get: {
+      tags,
+      summary: 'Popular searches',
+      description: `${note} The 8 most searched words in the last 30 days, only searches that found products, typos counted as the fixed word. Kept 10 minutes.`,
+      responses: { '200': json(open.meta({ id: 'StorePopularSearches' })) },
+    },
+  },
   '/v1/store/suggest': {
     get: {
       tags,
       summary: 'Search as you type',
-      description: `${note} Up to 6 products (best match first, typos fixed, synonyms used), 4 categories and 3 brands.`,
+      description: `${note} Up to 6 products (best match first, typos fixed, synonyms used), 4 categories, 3 brands, and up to 5 suggested searches (terms: past searches that found products and start with the typed words).`,
       requestParams: { query: suggestQuery },
       responses: { '200': json(open.meta({ id: 'StoreSuggest' })), ...errors(400) },
     },
