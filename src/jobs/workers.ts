@@ -4,6 +4,7 @@ import { readOldSite } from '../modules/admin/migration/reader.ts';
 import { sendOrderEmails } from '../modules/store/order-emails.ts';
 import { sendOrderUpdate, sendPlacedSms } from '../modules/store/order-updates.ts';
 import { checkInBackground } from '../modules/admin/orders/courier-record.ts';
+import { checkTry } from '../modules/payments/service.ts';
 import type { OrderUpdate } from '../modules/store/order-updates.ts';
 import { QUEUES, startBoss } from './boss.ts';
 
@@ -26,6 +27,9 @@ export async function startWorkers() {
   });
   await boss.work<{ phone: string }>(QUEUES.courierCheck, { batchSize: 1, pollingIntervalSeconds: 5 }, async ([job]) => {
     if (job) await checkInBackground(job.data.phone);
+  });
+  await boss.work<{ tranId: string }>(QUEUES.paymentCheck, { batchSize: 1, pollingIntervalSeconds: 10 }, async ([job]) => {
+    if (job) await checkTry(job.data.tranId);
   });
   logger.info('Background workers started');
 }

@@ -13,3 +13,4 @@ export * from './content.ts';
 export * from './seo.ts';
 export * from './integrations.ts';
 export * from './reviews.ts';
+export * from './payments.ts';

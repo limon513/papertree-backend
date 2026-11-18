@@ -107,7 +107,8 @@ export const checkoutBody = z
       .array(z.object({ variantId: z.number().int().positive(), quantity: z.number().int().min(1).max(9999) }))
       .min(1, { error: 'Your cart is empty' })
       .max(100),
-    paymentMethod: z.enum(['cod']).default('cod'),
+    /** cod: cash on delivery. online: pay now with SSLCommerz (bKash, Nagad, cards…), when the shop has it on. */
+    paymentMethod: z.enum(['cod', 'online']).default('cod'),
     /** The total the shopper saw: if prices changed since, the order is not placed (409 PRICE_CHANGED). */
     expectedTotal: z.number().min(0),
     /** A new id per checkout attempt; sending the same one again returns the same order. */

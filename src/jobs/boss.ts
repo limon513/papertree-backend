@@ -21,6 +21,8 @@ export const QUEUES = {
   courierCheck: 'courier-check',
   /** Data: { runId } of an old_site_runs row. Reads the old website for "Move from old site". */
   oldSiteRead: 'old-site-read',
+  /** Data: { tranId }. An online payment try with no answer yet: asked from SSLCommerz a while later. */
+  paymentCheck: 'payment-check',
 } as const;
 
 let started: Promise<PgBoss> | null = null;
@@ -39,6 +41,8 @@ export function startBoss() {
     await boss.createQueue(QUEUES.courierCheck, { expireInSeconds: 120, retryLimit: 0 });
     // Reading a big old site can take a while; not retried (start it again from the page instead).
     await boss.createQueue(QUEUES.oldSiteRead, { expireInSeconds: 3 * 3600, retryLimit: 0 });
+    // SSLCommerz busy: tried again later (settling a payment twice changes nothing).
+    await boss.createQueue(QUEUES.paymentCheck, { expireInSeconds: 120, retryLimit: 3, retryDelay: 600 });
     return boss;
   })();
   return started;
