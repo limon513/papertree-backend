@@ -63,6 +63,10 @@ export function stateOf(key: IntegrationKey, s: Loaded<IntegrationKey>) {
     case 'payment':
       if (!set.enabled) return 'off';
       return set.storeId && s.secrets.storePassword ? 'ready' : 'incomplete';
+    case 'push':
+      if (!set.enabled) return 'off';
+      if (!(set.senderId && set.vapidKey && s.secrets.serviceAccount)) return 'incomplete';
+      return set.testMode || !isProduction ? 'test' : 'ready';
   }
 }
 

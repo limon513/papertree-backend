@@ -8,10 +8,12 @@ import { sendEmail, sendSms } from '../admin/integrations/service.ts';
 import type { MessageEvent, StoreSettings } from '../admin/settings/schemas.ts';
 import { getSettings } from '../admin/settings/service.ts';
 import { alreadySent, button, esc, itemsTable, layout, load, placeOf, site, taka, type Loaded } from './order-emails.ts';
+import { sendToCustomer } from '../push/service.ts';
+import type { PushMessage } from '../push/fcm.ts';
 
 /**
  * Messages to the customer when their order moves on: confirmed, on the way, delivered, cancelled.
- * Settings → Customer messages chooses which go out by SMS and which by email. Each goes out once
+ * Settings → Customer messages chooses which go out by SMS, email and push notification. Each goes out once
  * per order, even when staff set the same step twice.
  */
 
@@ -173,6 +175,28 @@ export async function sendOrderUpdate(orderId: number, event: OrderUpdate) {
   }
   if (choice.email && o.email && !(await alreadySent(purpose, 'email'))) {
     await sendEmail({ to: o.email, ...statusEmail(event, d), purpose });
+  }
+  // On the customer's phones and computers that allowed it (and only if they keep order alerts on).
+  if (choice.push && o.customerId && !(await alreadySent(purpose, 'push'))) {
+    await sendToCustomer(o.customerId, 'orders', pushText(event, o), purpose, { urgent: event === 'shipped' });
+  }
+}
+
+/** The push notification for an order step: short, with what to do next. A tap opens the order. */
+export function pushText(event: OrderUpdate, o: Pick<Order, 'number' | 'total' | 'paidAmount' | 'courier' | 'trackingCode' | 'publicToken'>): PushMessage {
+  const due = dueOf(o);
+  const pay = due > 0 ? ` Please keep ${tk(due)} ready.` : '';
+  const url = o.publicToken ? `/checkout/thank-you/?o=${encodeURIComponent(o.publicToken)}` : '/account/';
+  const tag = `order-${o.number}`;
+  switch (event) {
+    case 'confirmed':
+      return { title: `Order #${o.number} is confirmed`, body: `We are getting it ready and will send it soon.${due > 0 ? ` Pay ${tk(due)} on delivery.` : ' It is paid.'}`, url, tag };
+    case 'shipped':
+      return { title: `Order #${o.number} is on the way`, body: `${o.courier ? `With ${o.courier}${o.trackingCode ? `, tracking ${o.trackingCode}` : ''}.` : 'It is on its way to you.'}${pay}`, url, tag };
+    case 'delivered':
+      return { title: `Order #${o.number} is delivered`, body: 'Thank you for shopping with us! Tell us how you liked it.', url, tag };
+    case 'cancelled':
+      return { title: `Order #${o.number} is cancelled`, body: 'If this is a mistake, call or WhatsApp us and we will sort it out.', url, tag };
   }
 }
 

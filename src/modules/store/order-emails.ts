@@ -33,7 +33,7 @@ export async function load(orderId: number) {
 export type Loaded = NonNullable<Awaited<ReturnType<typeof load>>>;
 
 /** Was this message already sent (a retried job, or the same step twice)? */
-export async function alreadySent(purpose: string, channel: 'email' | 'sms' = 'email') {
+export async function alreadySent(purpose: string, channel: 'email' | 'sms' | 'push' = 'email') {
   const [row] = await db
     .select({ id: messageLog.id })
     .from(messageLog)

@@ -2,7 +2,7 @@ import { index, jsonb, pgTable, text } from 'drizzle-orm/pg-core';
 import { adminUsers } from './admin.ts';
 import { id, ref, timestamptz } from './_helpers.ts';
 
-export const INTEGRATION_KEYS = ['email', 'sms', 'google', 'payment', 'steadfast'] as const;
+export const INTEGRATION_KEYS = ['email', 'sms', 'google', 'payment', 'steadfast', 'push'] as const;
 export type IntegrationKey = (typeof INTEGRATION_KEYS)[number];
 
 /**
@@ -20,7 +20,7 @@ export const integrations = pgTable('integrations', {
   updatedAt: timestamptz('updated_at').notNull().defaultNow(),
 });
 
-export type MessageChannel = 'email' | 'sms';
+export type MessageChannel = 'email' | 'sms' | 'push';
 /** sent: the service took it; failed: it did not; logged: test mode, only written here. */
 export type MessageStatus = 'sent' | 'failed' | 'logged';
 

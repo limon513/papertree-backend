@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { count, desc, eq } from 'drizzle-orm';
 import { db } from '../../../db/client.ts';
-import { messageLog } from '../../../db/schema/index.ts';
+import { customers, messageLog, pushDevices } from '../../../db/schema/index.ts';
 import { audit } from '../../../lib/audit.ts';
 import { badRequest } from '../../../lib/errors.ts';
 import { normalizePhone, isBdPhone } from '../../../lib/phone.ts';
@@ -10,6 +10,8 @@ import { currentAdmin } from '../../../middleware/admin-auth.ts';
 import { integrationBody, integrationKeyParam, messageListQuery, testBody } from './schemas.ts';
 import { allIntegrationViews, integrationView, saveIntegration, sendEmail, sendSms, smsBalance } from './service.ts';
 import { steadfastBalance } from '../orders/steadfast.ts';
+import { pushSetup } from '../../push/fcm.ts';
+import { deliver } from '../../push/service.ts';
 
 /** Outside services (email, SMS, Google sign-in, payment). Mounted behind requireAdmin + requireSuperAdmin. */
 export const integrationsRouter = Router();
@@ -69,5 +71,19 @@ integrationsRouter.post('/:key/test', async (req, res) => {
     res.json(await sendSms({ to: phone, text: 'PaperTree test SMS: if you can read this, SMS is working.', purpose: 'test' }));
     return;
   }
-  throw badRequest('Only email and SMS can be tested here');
+  if (key === 'push') {
+    // To the devices of the customer with this phone (they allowed alerts on the website, signed in).
+    const phone = normalizePhone(to);
+    if (!isBdPhone(phone)) throw badRequest('Enter a Bangladeshi number', { to: 'Enter the phone number of a customer account, like 01712345678' });
+    const setup = await pushSetup();
+    if (!setup) throw badRequest('Push notifications are off or not set up yet: save the Firebase details first.');
+    const [c] = await db.select({ id: customers.id }).from(customers).where(eq(customers.phone, phone));
+    const devices = c ? await db.select({ id: pushDevices.id, token: pushDevices.token }).from(pushDevices).where(eq(pushDevices.customerId, c.id)) : [];
+    if (!devices.length) throw badRequest('No device for this number', { to: 'No device has alerts on for this number. Sign in on the website with it and turn on alerts (account page).' });
+    let sent = 0;
+    for (const d of devices) if ((await deliver(setup, d, { title: 'PaperTree test', body: 'If you can see this, push notifications are working.', url: '/', tag: 'test' }, 'test', { ttlSeconds: 600 })) === 'sent') sent++;
+    res.json({ status: sent ? 'sent' : 'failed', sent, devices: devices.length });
+    return;
+  }
+  throw badRequest('Only email, SMS and push can be tested here');
 });

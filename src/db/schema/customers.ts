@@ -51,6 +51,10 @@ export const customers = pgTable(
     /** Their Google account photo: only the address, shown straight from Google (nothing stored here). */
     avatarUrl: text('avatar_url'),
     lastSignInAt: timestamptz('last_sign_in_at'),
+    /** Push notifications they want (on the devices where they allowed them): order updates, offers, saved items. */
+    pushOrders: boolean('push_orders').notNull().default(true),
+    pushOffers: boolean('push_offers').notNull().default(true),
+    pushWishlist: boolean('push_wishlist').notNull().default(true),
     ...timestamps,
   },
   (t) => [

@@ -22,6 +22,7 @@ import { businessOf, termsOf, WHOLESALE_PRICE, wholesaleRouter } from './wholesa
 import { trackRouter } from './track.ts';
 import { reviewsRouter } from './reviews.ts';
 import { wishlistRouter } from './wishlist.ts';
+import { pushRouter, pushWebConfig } from './push.ts';
 
 /** Public API for the website. Mounted at /v1/store. Shoppers may sign in (account routes). */
 export const storeRouter = Router();
@@ -39,7 +40,7 @@ const and_ = (parts: (SQL | undefined)[]) => {
 // ---- Menus, footer, store details ----
 
 storeRouter.get('/catalog', async (_req, res) => {
-  const [cats, brandRows, store, google, footerPages, checkout, online] = await Promise.all([
+  const [cats, brandRows, store, google, footerPages, checkout, online, push] = await Promise.all([
     activeCategories(),
     db.select().from(brands).where(eq(brands.isActive, true)).orderBy(sql`${brands.isFeatured} desc`, asc(sql`lower(${brands.name})`)),
     getSettings('store'),
@@ -47,6 +48,7 @@ storeRouter.get('/catalog', async (_req, res) => {
     db.select({ title: pages.title, slug: pages.slug }).from(pages).where(and(eq(pages.isPublished, true), eq(pages.showInFooter, true))).orderBy(asc(pages.sortOrder), asc(pages.id)),
     getSettings('checkout'),
     onlinePaymentReady(),
+    pushWebConfig(),
   ]);
   const g = google.settings;
   const images = await imagesById([...cats.all.map((c) => c.imageId), ...brandRows.map((b) => b.imageId), store.logoImageId]);
@@ -77,6 +79,8 @@ storeRouter.get('/catalog', async (_req, res) => {
     pages: footerPages,
     // Paying online at checkout (SSLCommerz: bKash, Nagad, cards…). sandbox: test money only.
     onlinePayment: online,
+    // Push notifications: the Firebase web settings to turn them on (public by design). null when off.
+    push,
     // The shop's wholesale terms, for the Wholesale page (the same ones checkout shows a business).
     wholesale: {
       advancePercent: checkout.wholesale.advancePercent,
@@ -639,4 +643,5 @@ storeRouter.use(wholesaleRouter);
 storeRouter.use(trackRouter);
 storeRouter.use(reviewsRouter);
 storeRouter.use(wishlistRouter);
+storeRouter.use(pushRouter);
 storeRouter.use(storeSeoRouter);
