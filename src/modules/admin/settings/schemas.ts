@@ -95,13 +95,15 @@ export type CheckoutSettings = z.infer<typeof checkoutSettings>;
 export const MESSAGE_EVENTS = ['placed', 'confirmed', 'shipped', 'delivered', 'cancelled'] as const;
 export type MessageEvent = (typeof MESSAGE_EVENTS)[number];
 
-const channels = (sms: boolean, email: boolean) =>
-  z.object({ sms: z.boolean().default(sms), email: z.boolean().default(email) }).default({ sms, email });
+/** SMS cost money; email and push notifications are free (push reaches only devices that allowed it). */
+const channels = (sms: boolean, email: boolean, push = true) =>
+  z.object({ sms: z.boolean().default(sms), email: z.boolean().default(email), push: z.boolean().default(push) }).default({ sms, email, push });
 
 /** Which messages go out. SMS cost money, so only the ones that matter most are on at first. */
 export const messagesSettings = z
   .object({
-    placed: channels(false, true),
+    // Just ordered: they are looking at their order already, no push.
+    placed: channels(false, true, false),
     confirmed: channels(true, true),
     shipped: channels(true, true),
     delivered: channels(false, true),

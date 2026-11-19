@@ -209,6 +209,21 @@ export const storeDocs: ZodOpenApiPathsObject = {
       responses: { '204': { description: 'Removed' }, ...errors(401, 429) },
     },
   },
+  '/v1/store/push/devices': {
+    post: {
+      tags,
+      summary: 'This browser allowed alerts (push notifications)',
+      description: 'Its Firebase Cloud Messaging token. A signed-in shopper’s device becomes theirs (order updates, saved items); any device can get the shop’s offers.',
+      responses: { '204': { description: 'Saved' }, ...errors(400, 429) },
+    },
+  },
+  '/v1/store/push/devices/remove': {
+    post: { tags, summary: 'This browser turned alerts off', responses: { '204': { description: 'Removed' }, ...errors(400, 429) } },
+  },
+  '/v1/store/me/notifications': {
+    get: { tags, summary: 'Which alerts they want', description: 'Signed in: orders, offers, wishlist (on/off) and how many devices have alerts on.', responses: { '200': json(open.meta({ id: 'StoreNotificationPrefs' })), ...errors(401) } },
+    patch: { tags, summary: 'Change which alerts they want', description: 'Any of orders, offers, wishlist (true/false).', responses: { '200': json(open.meta({ id: 'StoreNotificationPrefsSaved' })), ...errors(400, 401) } },
+  },
   '/v1/webhooks/sslcommerz/ipn': {
     post: {
       tags: ['Webhooks'],

@@ -87,6 +87,27 @@ export const INTEGRATIONS = {
     }),
     secrets: ['apiKey', 'secretKey'] as const,
   },
+  push: {
+    settings: z.object({
+      /**
+       * Push notifications with Firebase Cloud Messaging (free): order updates, offers, saved items. The
+       * website uses the Firebase web settings of "Google sign-in" plus these two.
+       */
+      enabled: z.boolean().default(false),
+      /** Firebase → Project settings → Cloud Messaging → Sender ID. */
+      senderId: text(50),
+      /** Firebase → Project settings → Cloud Messaging → Web Push certificates → key pair (public). */
+      vapidKey: text(200),
+      /**
+       * Away from the live server (and in test mode), alerts go only to customers with these phone numbers;
+       * the rest are only written to the message log. Real customers' devices are in the shared database.
+       */
+      testMode: z.boolean().default(true),
+      testPhones: z.array(z.string().trim().regex(/^01\d{9}$/, { error: 'A phone number like 01712345678' })).max(10, { error: 'At most 10' }).default([]),
+    }),
+    /** The service account key (Firebase → Project settings → Service accounts → Generate new private key): the whole JSON. */
+    secrets: ['serviceAccount'] as const,
+  },
 } satisfies Record<(typeof INTEGRATION_KEYS)[number], { settings: z.ZodObject; secrets: readonly string[] }>;
 
 export type IntegrationKey = keyof typeof INTEGRATIONS;
@@ -98,7 +119,7 @@ export const integrationKeyParam = z.object({ key: z.enum(INTEGRATION_KEYS) });
 export const integrationBody = z
   .object({
     settings: z.record(z.string(), z.unknown()),
-    secrets: z.record(z.string(), z.string().trim().max(500).nullable()).default({}),
+    secrets: z.record(z.string(), z.string().trim().max(6000, { error: 'Too long' }).nullable()).default({}),
   })
   .meta({ id: 'IntegrationBody' });
 
@@ -107,7 +128,7 @@ export const testBody = z
   .meta({ id: 'IntegrationTestBody' });
 
 export const messageListQuery = z.object({
-  channel: z.enum(['email', 'sms', 'all']).default('all'),
+  channel: z.enum(['email', 'sms', 'push', 'all']).default('all'),
   page: z.coerce.number().int().min(1).max(1000).default(1),
 });
 

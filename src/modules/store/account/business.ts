@@ -10,6 +10,7 @@ import { optionalText } from '../../admin/schemas.ts';
 import { getSettings } from '../../admin/settings/service.ts';
 import { smsSafe } from '../order-updates.ts';
 import { esc } from '../order-emails.ts';
+import { sendToCustomer } from '../../push/service.ts';
 
 /**
  * Business (wholesale) accounts from the website: a signed-in customer asks, staff call and approve
@@ -100,7 +101,7 @@ async function alertShop(c: Customer) {
   });
 }
 
-/** Tells a business it was approved (Settings → Customer messages chooses SMS / email). */
+/** Tells a business it was approved (Settings → Customer messages chooses SMS / email / push). */
 export async function tellApproved(c: Customer) {
   const [messages, store] = await Promise.all([getSettings('messages'), getSettings('store')]);
   const choice = messages.businessApproved;
@@ -123,6 +124,10 @@ ${store.phone ? `<p style="color:#71717a;font-size:13px">Questions? Call ${esc(s
       text: `Your business account is approved.\n\n${name} can now buy at wholesale prices on ${store.name}. Sign in on the website with ${c.phone} to see them.\n\n${site}/account/`,
       purpose,
     });
+  }
+  // About their account, like an order update (on the devices where they turned alerts on).
+  if (choice.push) {
+    await sendToCustomer(c.id, 'orders', { title: 'Your business account is approved', body: 'You can now buy at wholesale prices. Tap to start shopping.', url: '/account/', tag: 'business' }, purpose);
   }
 }
 

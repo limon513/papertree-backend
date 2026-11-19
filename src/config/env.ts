@@ -35,6 +35,8 @@ const schema = z
      * IPN here, so on the live server it must be the https address (e.g. https://papertree-api.bitnbyteit.com).
      */
     API_PUBLIC_URL: z.string().url().default('http://localhost:4000'),
+    /** Firebase Cloud Messaging (push notifications). Tests point it at a fake server. */
+    FCM_URL: z.string().url().default('https://fcm.googleapis.com'),
     /** The SSLCommerz sandbox (test money). Tests point it at a fake server. */
     SSLCOMMERZ_SANDBOX_URL: z.string().url().default('https://sandbox.sslcommerz.com'),
     /** Away from the live server only the SSLCommerz sandbox (test money) is used, unless this is true. */

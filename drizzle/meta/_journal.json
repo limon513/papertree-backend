@@ -218,6 +218,13 @@
       "when": 1795016819100,
       "tag": "0030_wishlist",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1795047833972,
+      "tag": "0031_push_devices",
+      "breakpoints": true
     }
   ]
 }
