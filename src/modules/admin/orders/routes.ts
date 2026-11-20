@@ -23,11 +23,15 @@ import {
   orderListQuery,
   paymentBody,
   priceBody,
+  purchaseOrderKind,
+  purchaseOrderPatch,
+  purchaseOrderSend,
   STATUS_FLOW,
   statusBody,
   steadfastSendBody,
   variantSearchQuery,
 } from './schemas.ts';
+import { draftsWaiting, poWaiting, previewPurchaseOrder, purchaseOrdersOf, sendPurchaseOrder, updatePurchaseOrder } from './purchase-orders.ts';
 import {
   addNote,
   addPayment,
@@ -72,9 +76,10 @@ ordersRouter.get('/', async (req, res) => {
   ];
   const statusFilter =
     q.status === 'open' ? notInArray(orders.status, [...CLOSED]) : q.status ? eq(orders.status, q.status) : undefined;
-  const where = and(...filters, statusFilter);
+  const poFilter = q.po === 'waiting' ? sql`(${poWaiting.toSend} + ${poWaiting.toCancel}) > 0` : undefined;
+  const where = and(...filters, statusFilter, poFilter);
 
-  const [rows, [total], counts] = await Promise.all([
+  const [rows, [total], counts, poOrders] = await Promise.all([
     db
       .select({
         id: orders.id,
@@ -97,6 +102,9 @@ ordersRouter.get('/', async (req, res) => {
         courierStatus: orders.courierStatus,
         /** The customer's saved courier record (good, watch, risky, unknown; null: not checked). */
         courierLevel: sql<string | null>`(select cc.level from courier_checks cc where cc.phone = "orders"."phone")`,
+        /** Purchase orders to brands still to send, and sent ones to cancel (order cancelled). */
+        poToSend: poWaiting.toSend,
+        poToCancel: poWaiting.toCancel,
         createdAt: orders.createdAt,
       })
       .from(orders)
@@ -108,14 +116,16 @@ ordersRouter.get('/', async (req, res) => {
     db
       .select({ status: orders.status, n: count() })
       .from(orders)
-      .where(and(...filters))
+      .where(and(...filters, poFilter))
       .groupBy(orders.status),
+    draftsWaiting(),
   ]);
 
   const byStatus: Record<string, number> = Object.fromEntries(counts.map((c) => [c.status, c.n]));
   byStatus.open = counts.filter((c) => !(CLOSED as readonly string[]).includes(c.status)).reduce((s, c) => s + c.n, 0);
   byStatus.all = counts.reduce((s, c) => s + c.n, 0);
-  res.json({ items: rows, total: total?.n ?? 0, page: q.page, pageSize: PAGE_SIZE, counts: byStatus });
+  // Orders whose purchase orders wait to be sent (the whole shop, for the "Purchase orders" chip).
+  res.json({ items: rows, total: total?.n ?? 0, page: q.page, pageSize: PAGE_SIZE, counts: byStatus, poWaiting: poOrders });
 });
 
 /** Products to add to an order: name or SKU search, with today's price and stock. */
@@ -263,7 +273,7 @@ async function orderView(id: number) {
   const [order] = await db.select().from(orders).where(eq(orders.id, id));
   if (!order) throw notFound('Order not found');
 
-  const [items, payments, events, customer, messages, record, checkable] = await Promise.all([
+  const [items, payments, events, customer, messages, record, checkable, purchaseOrders] = await Promise.all([
     db.select().from(orderItems).where(eq(orderItems.orderId, id)).orderBy(asc(orderItems.position)),
     db
       .select({
@@ -302,6 +312,7 @@ async function orderView(id: number) {
     orderMessagesOf(order.number),
     savedRecord(order.phone),
     canCheck(),
+    purchaseOrdersOf(id, order.status),
   ]);
 
   const [createdBy] = order.createdBy
@@ -321,8 +332,36 @@ async function orderView(id: number) {
     courierRecord: record,
     canCheckCourier: checkable,
     customer: customer[0] ?? null,
+    /** Purchase orders to brands for products they supply, and such products that have no brand. */
+    purchaseOrders: purchaseOrders.items,
+    suppliedWithoutBrand: purchaseOrders.withoutBrand,
   };
 }
+
+// ---- Purchase orders to brands ----
+
+/** The email as the brand will get it, with anything to check first. */
+ordersRouter.get('/:id/purchase-orders/:poId/preview', async (req, res) => {
+  const kind = purchaseOrderKind.parse(req.query.kind);
+  res.json(await previewPurchaseOrder(parseId(req.params.id), parseId(req.params.poId), kind));
+});
+
+/** Who delivers (to our shop / to the customer) and a note for the brand. */
+ordersRouter.patch('/:id/purchase-orders/:poId', async (req, res) => {
+  const id = parseId(req.params.id);
+  await updatePurchaseOrder(id, parseId(req.params.poId), purchaseOrderPatch.parse(req.body));
+  res.json(await orderView(id));
+});
+
+/** Emails the purchase order to the brand (kind "cancel": tells the brand it is off). */
+ordersRouter.post('/:id/purchase-orders/:poId/send', async (req, res) => {
+  const id = parseId(req.params.id);
+  const poId = parseId(req.params.poId);
+  const { kind } = purchaseOrderSend.parse(req.body ?? {});
+  const result = await sendPurchaseOrder(id, poId, kind, currentAdmin(req).id);
+  await audit(req, { action: kind === 'order' ? 'order.po-send' : 'order.po-cancel', entityType: 'order', entityId: id, after: { purchaseOrderId: poId, testOnly: result.testOnly } });
+  res.json({ ...result, order: await orderView(id) });
+});
 
 // ---- Steadfast courier ----
 

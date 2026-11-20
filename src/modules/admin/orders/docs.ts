@@ -17,7 +17,11 @@ import {
   variantSearchQuery,
   variantSearchResult,
   priceBody,
+  purchaseOrderPatch,
+  purchaseOrderSend,
 } from './schemas.ts';
+
+const poParams = z.object({ id: z.coerce.number(), poId: z.coerce.number() });
 
 const tags = ['Admin: Orders'];
 const security = adminAuth;
@@ -170,6 +174,42 @@ export const ordersDocs: ZodOpenApiPathsObject = {
         ),
         ...errors(400, 401, 403),
       },
+    },
+  },
+  '/v1/admin/orders/{id}/purchase-orders/{poId}/preview': {
+    get: {
+      tags,
+      security,
+      summary: 'Preview a purchase order email',
+      description:
+        `${access} The email as the brand will get it (kind=order) or the cancellation (kind=cancel), with warnings to check first ` +
+        '(no order email on the brand, nothing left to order, money to collect when the brand delivers to the customer). No prices: they are settled with the brand.',
+      requestParams: { path: poParams, query: z.object({ kind: z.enum(['order', 'cancel']).optional() }) },
+      responses: { '200': json(z.object({ to: z.string().nullable(), subject: z.string(), html: z.string(), text: z.string(), warnings: z.array(z.string()) })), ...errors(401, 403, 404) },
+    },
+  },
+  '/v1/admin/orders/{id}/purchase-orders/{poId}': {
+    patch: {
+      tags,
+      security,
+      summary: 'Change who delivers, or the note for the brand',
+      description: `${access} Answers the order.`,
+      requestParams: { path: poParams },
+      requestBody: jsonBody(purchaseOrderPatch),
+      responses: { '200': json(orderDetail), ...errors(400, 401, 403, 404) },
+    },
+  },
+  '/v1/admin/orders/{id}/purchase-orders/{poId}/send': {
+    post: {
+      tags,
+      security,
+      summary: 'Email a purchase order to the brand',
+      description:
+        `${access} kind=order sends (or sends again) the purchase order of a confirmed order; kind=cancel tells the brand a sent one is off. ` +
+        'In email test mode it is only written to the message log (testOnly: true). A second click while it is being sent answers 409.',
+      requestParams: { path: poParams },
+      requestBody: jsonBody(purchaseOrderSend),
+      responses: { '200': json(z.object({ testOnly: z.boolean(), note: z.string().nullable(), order: orderDetail })), ...errors(400, 401, 403, 404, 409) },
     },
   },
   '/v1/admin/orders/{id}/courier-record': {

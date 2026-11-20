@@ -80,6 +80,8 @@ brandsRouter.post('/', async (req, res) => {
       isFeatured: input.isFeatured,
       seoTitle: input.seoTitle ?? null,
       seoDescription: input.seoDescription ?? null,
+      orderEmail: input.orderEmail ?? null,
+      shipsTo: input.shipsTo,
     })
     .returning();
   // A real page lives at this address now: an old redirect from it would hide it.
@@ -111,6 +113,8 @@ brandsRouter.patch('/:id', async (req, res) => {
       isFeatured: input.isFeatured,
       seoTitle: input.seoTitle,
       seoDescription: input.seoDescription,
+      orderEmail: input.orderEmail,
+      shipsTo: input.shipsTo,
     })
     .where(eq(brands.id, id))
     .returning();

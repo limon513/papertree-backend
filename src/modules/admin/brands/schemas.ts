@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { mediaSchema } from '../media/schemas.ts';
-import { optionalText, pictureFields, seoFields, slugInput } from '../schemas.ts';
+import { BRAND_SHIPS_TO } from '../../../db/schema/index.ts';
+import { emailSchema, optionalText, pictureFields, seoFields, slugInput } from '../schemas.ts';
+
+/** Where purchase orders for products the brand supplies go. Empty: none. */
+const orderEmail = z
+  .union([z.literal('').transform(() => null), z.null(), emailSchema])
+  .meta({ description: 'Purchase orders for products the brand supplies go here (admin only)' });
+const shipsTo = z.enum(BRAND_SHIPS_TO).meta({ description: 'Where the brand usually delivers what we order: shop (to us) or customer' });
 
 const brandName = z
   .string({ error: 'Name is required' })
@@ -19,6 +26,8 @@ export const createBrandBody = z
     isFeatured: z.boolean().default(false).meta({ description: 'Shown first in the brand shop' }),
     seoTitle: seoFields.seoTitle.optional(),
     seoDescription: seoFields.seoDescription.optional(),
+    orderEmail: orderEmail.optional(),
+    shipsTo: shipsTo.default('shop'),
   })
   .meta({ id: 'CreateBrandBody' });
 
@@ -33,6 +42,8 @@ export const updateBrandBody = z
     isFeatured: z.boolean().optional(),
     seoTitle: seoFields.seoTitle.optional(),
     seoDescription: seoFields.seoDescription.optional(),
+    orderEmail: orderEmail.optional(),
+    shipsTo: shipsTo.optional(),
   })
   .meta({ id: 'UpdateBrandBody' });
 
@@ -51,6 +62,8 @@ export const brand = z
     isFeatured: z.boolean(),
     seoTitle: z.string().nullable(),
     seoDescription: z.string().nullable(),
+    orderEmail: z.string().nullable(),
+    shipsTo: z.enum(BRAND_SHIPS_TO),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
   })

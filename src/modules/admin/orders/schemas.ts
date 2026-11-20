@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ORDER_CHANNELS, ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from '../../../db/schema/index.ts';
+import { BRAND_SHIPS_TO, ORDER_CHANNELS, ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from '../../../db/schema/index.ts';
 import { bdPhone } from '../../../lib/phone.ts';
 import { addressSchema } from '../customers/schemas.ts';
 import { mediaSchema } from '../media/schemas.ts';
@@ -141,8 +141,21 @@ export const orderListQuery = z.object({
   type: z.enum(['retail', 'wholesale']).optional(),
   from: z.iso.date().optional(),
   to: z.iso.date().optional(),
+  /** waiting = purchase orders to send to brands, or to cancel with them. */
+  po: z.enum(['waiting']).optional().meta({ description: 'waiting = orders with purchase orders to send (or to cancel) with brands' }),
   page: z.coerce.number().int().min(1).default(1),
 });
+
+// ---- Purchase orders to brands ----
+
+export const purchaseOrderPatch = z
+  .object({
+    shipTo: z.enum(BRAND_SHIPS_TO).optional().meta({ description: "shop: the brand delivers to us; customer: straight to the customer" }),
+    note: optionalText(1000).optional().meta({ description: 'Put in the email' }),
+  })
+  .meta({ id: 'PurchaseOrderPatch' });
+export const purchaseOrderKind = z.enum(['order', 'cancel']).default('order');
+export const purchaseOrderSend = z.object({ kind: purchaseOrderKind }).meta({ id: 'PurchaseOrderSend' });
 
 export const variantSearchQuery = z.object({
   q: z.string().trim().max(100).default(''),

@@ -239,6 +239,13 @@
       "when": 1795052246954,
       "tag": "0033_wishlist_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795148597294,
+      "tag": "0034_brand_purchase_orders",
+      "breakpoints": true
     }
   ]
 }
