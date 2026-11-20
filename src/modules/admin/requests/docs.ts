@@ -1,6 +1,15 @@
 import type { ZodOpenApiPathsObject } from 'zod-openapi';
 import { adminAuth, errors, idParam, json, jsonBody } from '../../../docs/common.ts';
-import { productRequestList, productRequestListQuery, productRequestUpdate, productRequestView } from './schemas.ts';
+import {
+  productRequestList,
+  productRequestListQuery,
+  productRequestUpdate,
+  productRequestView,
+  supplierLeadList,
+  supplierLeadListQuery,
+  supplierLeadUpdate,
+  supplierLeadView,
+} from './schemas.ts';
 
 const tags = ['Admin: Requests'];
 const security = adminAuth;
@@ -26,6 +35,27 @@ export const requestsDocs: ZodOpenApiPathsObject = {
       requestParams: { path: idParam },
       requestBody: jsonBody(productRequestUpdate),
       responses: { '200': json(productRequestView), ...errors(400, 401, 403, 404) },
+    },
+  },
+  '/v1/admin/supplier-leads': {
+    get: {
+      tags,
+      security,
+      summary: 'List "Sell with us" leads',
+      description: `${access} Brands and suppliers who want to sell through the shop, 50 per page. New ones oldest first (waiting longest), the rest latest first.`,
+      requestParams: { query: supplierLeadListQuery },
+      responses: { '200': json(supplierLeadList), ...errors(401, 403) },
+    },
+  },
+  '/v1/admin/supplier-leads/{id}': {
+    put: {
+      tags,
+      security,
+      summary: 'Move a lead to in talks or done (or new again), with a note',
+      description: `${access} Who picked it up, and when, is kept.`,
+      requestParams: { path: idParam },
+      requestBody: jsonBody(supplierLeadUpdate),
+      responses: { '200': json(supplierLeadView), ...errors(400, 401, 403, 404) },
     },
   },
 };

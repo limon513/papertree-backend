@@ -3,12 +3,13 @@ import { Router, type Response } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { and, asc, eq, gt, isNotNull, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.ts';
-import { banners, brands, pages, productCategories, productImages, productRequests, products, searchQueries } from '../../db/schema/index.ts';
+import { supplierLeadAlert } from './supplier-leads.ts';
+import { banners, brands, pages, productCategories, productImages, productRequests, products, searchQueries, supplierLeads } from '../../db/schema/index.ts';
 import { notFound } from '../../lib/errors.ts';
 import { advanceFor, defaultLocationId } from '../admin/orders/service.ts';
 import { AREAS, DISTRICTS, getSettings, listZones, LOCATIONS, quote } from '../admin/settings/service.ts';
 import { activeCategories, cards, cardTags, CURRENT_PRICE, facets, imagesById, inCategories, LOW_STOCK, SORTS, withTags } from './catalog.ts';
-import { cartBody, FOR_YOU_MAX_PAGES, forYouQuery, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
+import { cartBody, FOR_YOU_MAX_PAGES, forYouQuery, productListQuery, productRequestBody, searchLogBody, suggestQuery, supplierLeadBody } from './schemas.ts';
 import { nameMatches, planSearch, productBySku, searchRank, searchWhere } from './search.ts';
 import { popularSearches, suggestedSearches } from './search-terms.ts';
 import { onlinePaymentReady } from '../payments/sslcommerz.ts';
@@ -306,6 +307,18 @@ storeRouter.post('/product-requests', requestLimiter, async (req, res) => {
   const { website, ...input } = productRequestBody.parse(req.body);
   // The hidden box was filled: a bot. Answer as if saved, so it does not try again.
   if (!website) await db.insert(productRequests).values(input);
+  res.status(201).json({ ok: true });
+});
+
+/** "Sell with us": a brand or supplier leaves their details; staff are told by email (if set). */
+storeRouter.post('/supplier-leads', requestLimiter, async (req, res) => {
+  const { website, ...input } = supplierLeadBody.parse(req.body);
+  // The hidden box was filled: a bot. Answer as if saved, so it does not try again.
+  if (!website) {
+    const [lead] = await db.insert(supplierLeads).values(input).returning({ id: supplierLeads.id });
+    // Not waited for: the supplier sees "thank you" at once (sendEmail never throws).
+    void supplierLeadAlert(lead!.id, input);
+  }
   res.status(201).json({ ok: true });
 });
 
