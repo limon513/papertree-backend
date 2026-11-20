@@ -82,7 +82,7 @@ export const addressBody = z
 
 export type AddressInput = z.infer<typeof addressBody>;
 
-export const CUSTOMER_SORTS = ['newest', 'last_order', 'spent', 'orders', 'name'] as const;
+export const CUSTOMER_SORTS = ['newest', 'last_order', 'spent', 'orders', 'name', 'last_seen'] as const;
 
 export const customerListQuery = z.object({
   search: z.string().trim().max(100).optional().meta({ description: 'Name, phone, email or business name' }),

@@ -29,6 +29,8 @@ export const QUEUES = {
   pushBatch: 'push-batch',
   /** No data. Once a day (11 am Dhaka): saved items back in stock or cheaper, one alert per customer. */
   wishlistAlerts: 'wishlist-alerts',
+  /** No data. Once a day (3 am Dhaka): customer activity older than 90 days goes. */
+  activityCleanup: 'activity-cleanup',
 } as const;
 
 let started: Promise<PgBoss> | null = null;
@@ -54,6 +56,7 @@ export function startBoss() {
     await boss.createQueue(QUEUES.pushBatch, { expireInSeconds: 900, retryLimit: 0 });
     // Daily, mid-morning in Bangladesh; one run at a time (a run that failed is tried once more).
     await boss.createQueue(QUEUES.wishlistAlerts, { expireInSeconds: 1800, retryLimit: 1, retryDelay: 600, policy: 'singleton' });
+    await boss.createQueue(QUEUES.activityCleanup, { expireInSeconds: 1800, retryLimit: 1, retryDelay: 600, policy: 'singleton' });
     return boss;
   })();
   return started;

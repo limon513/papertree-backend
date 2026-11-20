@@ -10,6 +10,7 @@ import { parseId } from '../../../lib/ids.ts';
 import { normalizePhone } from '../../../lib/phone.ts';
 import { addressBody, blockBody, businessBody, customerBody, customerListQuery } from './schemas.ts';
 import { addAddress, addressView, deleteAddress, updateAddress } from './service.ts';
+import { customerActivityView } from './activity.ts';
 
 /** Mounted behind requireAdmin + requireModule('customers'). */
 export const customersRouter = Router();
@@ -62,6 +63,7 @@ customersRouter.get('/', async (req, res) => {
     spent: [sql`coalesce(${s.spent}, 0) desc`, desc(customers.createdAt)],
     orders: [sql`coalesce(${s.orders}, 0) desc`, desc(customers.createdAt)],
     name: [asc(sql`lower(${customers.name})`)],
+    last_seen: [sql`${customers.lastSeenAt} desc nulls last`, desc(customers.createdAt)],
   }[q.sort];
 
   const [rows, [total], ...counts] = await Promise.all([
@@ -80,6 +82,8 @@ customersRouter.get('/', async (req, res) => {
         spent: sql<number>`coalesce(${s.spent}, 0)`.mapWith(Number),
         due: sql<number>`coalesce(${s.due}, 0)`.mapWith(Number),
         lastOrderAt: s.lastOrderAt,
+        /** Last visit to the website while signed in. */
+        lastSeenAt: customers.lastSeenAt,
       })
       .from(customers)
       .leftJoin(s, eq(s.customerId, customers.id))
@@ -168,6 +172,14 @@ async function customerView(id: number) {
 
 customersRouter.get('/:id', async (req, res) => {
   res.json(await customerView(parseId(req.params.id)));
+});
+
+/** What the customer did on the website lately (signed in; kept 90 days). */
+customersRouter.get('/:id/activity', async (req, res) => {
+  const id = parseId(req.params.id);
+  const [c] = await db.select({ id: customers.id, lastSeenAt: customers.lastSeenAt, lastSignInAt: customers.lastSignInAt }).from(customers).where(eq(customers.id, id));
+  if (!c) throw notFound('Customer not found');
+  res.json({ lastSeenAt: c.lastSeenAt, lastSignInAt: c.lastSignInAt, ...(await customerActivityView(id)) });
 });
 
 async function checkPhone(phone: string, exceptId?: number) {

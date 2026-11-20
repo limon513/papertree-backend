@@ -5,7 +5,7 @@ import { getIntegration, stateOf } from '../admin/integrations/service.ts';
 import { unauthorized } from '../../lib/errors.ts';
 import { preferencesOf, registerDevice, removeDevice, setPreferences } from '../push/service.ts';
 import { countTap } from '../push/campaigns.ts';
-import { currentCustomer } from './account/session.ts';
+import { actingStaff, currentCustomer } from './account/session.ts';
 
 /** Push notifications on the website: devices that allowed them, and what the customer wants. */
 export const pushRouter = Router();
@@ -33,7 +33,9 @@ const deviceBody = z.object({
 pushRouter.post('/push/devices', limiter, async (req, res) => {
   const { token, device } = deviceBody.parse(req.body);
   const c = await currentCustomer(req);
-  await registerDevice(token, device, c?.id ?? null);
+  // Staff logged in as a customer: their browser must never get the customer's alerts.
+  const mine = c && !(await actingStaff(req)) ? c.id : null;
+  await registerDevice(token, device, mine);
   res.status(204).end();
 });
 

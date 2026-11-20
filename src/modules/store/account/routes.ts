@@ -5,7 +5,7 @@ import { and, count, desc, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm'
 import { z } from 'zod';
 import { isProduction } from '../../../config/env.ts';
 import { db } from '../../../db/client.ts';
-import { customerLoginCodes, customers, customerSessions, orderItems, orders } from '../../../db/schema/index.ts';
+import { customerLoginAsTokens, customerLoginCodes, customers, customerSessions, orderItems, orders } from '../../../db/schema/index.ts';
 import { sha256 } from '../../../lib/crypto.ts';
 import { AppError, badRequest, conflict, forbidden, notFound, unauthorized } from '../../../lib/errors.ts';
 import { getIntegration, sendSms } from '../../admin/integrations/service.ts';
@@ -16,7 +16,7 @@ import { googleTicket, readGoogleTicket, verifyGoogleToken, type GoogleUser } fr
 import { addressBody, codeBody, googleBody, profileBody, verifyBody } from './schemas.ts';
 import { addAddress, deleteAddress, makeDefaultAddress, updateAddress } from '../../admin/customers/service.ts';
 import { parseId } from '../../../lib/ids.ts';
-import { currentCustomer, customerView, signIn, signOut } from './session.ts';
+import { actingStaff, currentCustomer, customerView, signIn, signInAsStaff, signOut } from './session.ts';
 import { applyForBusiness, businessApplyBody } from './business.ts';
 
 /** Website sign-in (phone code or Google) and the shopper's own account. Mounted at /v1/store. */
@@ -164,6 +164,23 @@ accountRouter.post('/auth/google', verifyLimiter, async (req, res) => {
   res.json({ needsPhone: true, ticket: googleTicket(google), name: google.name, avatarUrl: google.picture });
 });
 
+/**
+ * A staff member's one-time "log in as customer" link (from the admin): logs this browser in as the
+ * customer for 30 minutes, marked as staff. The link works once, for 2 minutes.
+ */
+const asLimiter = rateLimit({ windowMs: 10 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
+accountRouter.post('/auth/as', asLimiter, async (req, res) => {
+  const token = z.object({ token: z.string().min(20).max(200) }).parse(req.body).token;
+  const [row] = await db
+    .update(customerLoginAsTokens)
+    .set({ usedAt: new Date() })
+    .where(and(eq(customerLoginAsTokens.id, sha256(token)), isNull(customerLoginAsTokens.usedAt), gt(customerLoginAsTokens.expiresAt, new Date())))
+    .returning({ customerId: customerLoginAsTokens.customerId, adminUserId: customerLoginAsTokens.adminUserId });
+  if (!row) throw badRequest('This link has expired or was already used. Make a new one in the admin.');
+  await signInAsStaff(res, req, row.customerId, row.adminUserId);
+  res.json({ customer: await viewOf(row.customerId) });
+});
+
 accountRouter.post('/auth/logout', async (req, res) => {
   await signOut(req, res);
   res.json({ ok: true });
@@ -171,6 +188,7 @@ accountRouter.post('/auth/logout', async (req, res) => {
 
 /** Signs out every phone and computer signed in to this account (e.g. a lost phone). */
 accountRouter.post('/auth/logout-all', async (req, res) => {
+  if (await actingStaff(req)) throw forbidden('Staff cannot sign the customer out of their devices.');
   await signOut(req, res, true);
   res.json({ ok: true });
 });
@@ -191,7 +209,12 @@ async function signedIn(req: Request) {
 /** Who is signed in: { customer } or { customer: null }. Never cached. */
 accountRouter.get('/me', async (req, res) => {
   const c = await currentCustomer(req);
-  res.set('cache-control', 'no-store').json({ customer: c ? await customerView(c) : null });
+  const staff = c ? await actingStaff(req) : null;
+  res.set('cache-control', 'no-store').json({
+    customer: c ? await customerView(c) : null,
+    /** A staff member logged in as this customer (the website shows a banner). */
+    staff: staff ? { name: staff.name, until: staff.until } : null,
+  });
 });
 
 /** The shopper's orders, newest first (website and those taken by phone or in the shop). */

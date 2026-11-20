@@ -5,10 +5,10 @@ import { and, count, desc, eq, inArray, isNull, notExists, sql } from 'drizzle-o
 import { z } from 'zod';
 import { db } from '../../db/client.ts';
 import { customers, MAX_REVIEW_PHOTOS, media, productReviews, products } from '../../db/schema/index.ts';
-import { badRequest, conflict, notFound, unauthorized } from '../../lib/errors.ts';
+import { badRequest, conflict, forbidden, notFound, unauthorized } from '../../lib/errors.ts';
 import { storeImage } from '../admin/media/store.ts';
 import { cleanText, deliveredOrderWith, photosOf, refreshRating, shortName } from '../admin/reviews/service.ts';
-import { currentCustomer, CUSTOMER_COOKIE } from './account/session.ts';
+import { actingStaff, currentCustomer, CUSTOMER_COOKIE } from './account/session.ts';
 import { imagesById, publicImage } from './catalog.ts';
 
 /**
@@ -24,6 +24,11 @@ async function signedIn(req: Request) {
   const c = await currentCustomer(req);
   if (!c) throw unauthorized('Please sign in');
   return c;
+}
+
+/** Reviews are the customer's own words: never written by staff logged in as them. */
+async function ownWords(req: Request) {
+  if (await actingStaff(req)) throw forbidden('Staff cannot write reviews for a customer.');
 }
 
 // ---- Reading (everyone) ----
@@ -162,6 +167,7 @@ const upload = multer({
 /** A photo for a review (signed in). Answers its id, to send with the review. */
 reviewsRouter.post('/me/review-photos', writeLimiter, upload.single('file'), async (req, res) => {
   const c = await signedIn(req);
+  await ownWords(req);
   if (!req.file) throw badRequest('Choose a photo', { file: 'Choose a photo' });
   const row = await storeImage(req.file.buffer, 'review-photo.jpg', null, c.id);
   res.status(201).json({ id: row.id, ...publicImage(row) });
@@ -183,6 +189,7 @@ export const reviewBody = z
 /** Write or change their review. It waits for staff again (a changed review is checked again). */
 reviewsRouter.post('/me/reviews', writeLimiter, async (req, res) => {
   const c = await signedIn(req);
+  await ownWords(req);
   const input = reviewBody.parse(req.body);
   const [p] = await db.select({ id: products.id }).from(products).where(and(eq(products.id, input.productId), eq(products.status, 'active')));
   if (!p) throw notFound('Product not found');

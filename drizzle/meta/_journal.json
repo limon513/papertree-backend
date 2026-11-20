@@ -274,6 +274,13 @@
       "when": 1795155680848,
       "tag": "0038_custom_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1795158031774,
+      "tag": "0039_login_as_activity",
+      "breakpoints": true
     }
   ]
 }

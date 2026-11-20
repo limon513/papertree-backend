@@ -25,6 +25,13 @@ export function requireModule(module: AdminModule) {
   };
 }
 
+/** Use after requireAdmin: Super Admins, and roles allowed to "Log in as customer". */
+export function requireLoginAs(req: Request, _res: Response, next: NextFunction) {
+  const role = currentAdmin(req).role;
+  if (!role.isSuperAdmin && !role.canImpersonate) throw forbidden('Your role cannot log in as a customer');
+  next();
+}
+
 /** Use after requireAdmin. */
 export function requireSuperAdmin(req: Request, _res: Response, next: NextFunction) {
   if (!currentAdmin(req).role.isSuperAdmin) throw forbidden('Only a Super Admin can do this');

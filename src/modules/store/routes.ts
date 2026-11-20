@@ -18,6 +18,7 @@ import { currentCustomer } from './account/session.ts';
 import { storeOrdersRouter } from './orders.ts';
 import { storeQuotationsRouter } from './quotations.ts';
 import { customRequestsRouter } from './custom-requests.ts';
+import { activityRouter, recordSearch } from './activity.ts';
 import { accountRouter } from './account/routes.ts';
 import { storeSeoRouter } from './seo.ts';
 import { getIntegration } from '../admin/integrations/service.ts';
@@ -327,7 +328,11 @@ storeRouter.post('/supplier-leads', requestLimiter, async (req, res) => {
 /** The browser reports each search made on the website, for the search report. */
 storeRouter.post('/search-log', async (req, res) => {
   const body = searchLogBody.safeParse(req.body);
-  if (body.success) await db.insert(searchQueries).values(body.data);
+  if (body.success) {
+    await db.insert(searchQueries).values(body.data);
+    // A signed-in customer's search, for staff to see their interests.
+    await recordSearch(req, body.data.query);
+  }
   res.status(204).end();
 });
 
@@ -655,6 +660,7 @@ interface StoreCartCoupon {
 storeRouter.use('/orders', storeOrdersRouter);
 storeRouter.use('/quotations', storeQuotationsRouter);
 storeRouter.use('/custom-requests', customRequestsRouter);
+storeRouter.use(activityRouter);
 storeRouter.use(accountRouter);
 storeRouter.use(wholesaleRouter);
 storeRouter.use(trackRouter);
