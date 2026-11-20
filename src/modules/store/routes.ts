@@ -16,6 +16,7 @@ import { onlinePaymentReady } from '../payments/sslcommerz.ts';
 import { checkCouponUse, cleanCode, codeGuard, CouponError, couponFor, couponLabel, findCoupon, shortfallMessage } from '../admin/coupons/service.ts';
 import { currentCustomer } from './account/session.ts';
 import { storeOrdersRouter } from './orders.ts';
+import { storeQuotationsRouter } from './quotations.ts';
 import { accountRouter } from './account/routes.ts';
 import { storeSeoRouter } from './seo.ts';
 import { getIntegration } from '../admin/integrations/service.ts';
@@ -651,6 +652,7 @@ interface StoreCartCoupon {
 // ---- Orders (checkout) ----
 
 storeRouter.use('/orders', storeOrdersRouter);
+storeRouter.use('/quotations', storeQuotationsRouter);
 storeRouter.use(accountRouter);
 storeRouter.use(wholesaleRouter);
 storeRouter.use(trackRouter);

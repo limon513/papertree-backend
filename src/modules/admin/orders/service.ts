@@ -103,6 +103,11 @@ export interface OrderLineIn {
   quantity: number;
   unitPrice?: number;
   bulk?: boolean;
+  /**
+   * A line ordered from a quotation: its money exactly as quoted (the line total, and the bulk discount
+   * it had). Set by the shop's own code only, never from a form. Needs `unitPrice`.
+   */
+  fixed?: { lineTotal: number; bulkPercent: number | null; bulkDiscount: number };
 }
 
 /** The same product twice becomes one line (the first line's price is kept). `index`: where it was in the form. */
@@ -135,11 +140,12 @@ export function priceLines(type: OrderType, lines: (OrderLineIn & { index: numbe
       /** Before any bulk discount. */
       basePrice: unitPrice,
       unitPrice,
-      lineTotal: round(unitPrice * line.quantity),
+      // A quoted line keeps its quoted total (a bulk-discounted line's total is not always price × quantity to the paisa).
+      lineTotal: line.fixed && line.unitPrice !== undefined ? round(line.fixed.lineTotal) : round(unitPrice * line.quantity),
       weightGrams: v.weightGrams,
-      bulkOk: line.bulk ?? line.unitPrice === undefined,
-      bulkPercent: null as number | null,
-      bulkDiscount: 0,
+      bulkOk: line.fixed ? false : (line.bulk ?? line.unitPrice === undefined),
+      bulkPercent: (line.fixed?.bulkPercent ?? null) as number | null,
+      bulkDiscount: line.fixed?.bulkDiscount ?? 0,
       bulkNext: null as { more: number; percent: number } | null,
     };
   });
@@ -379,9 +385,12 @@ export interface CreateOrderExtras {
   enforceMinimum?: boolean;
 }
 
-/** Places an order. `adminUserId` is null for orders from the website. */
-export async function createOrder(input: OrderInput, adminUserId: number | null, extras: CreateOrderExtras = {}) {
-  return db.transaction(async (tx) => {
+/**
+ * Places an order. `adminUserId` is null for orders from the website. `outer`: the caller's
+ * transaction (an order from a quotation is placed and the quotation marked ordered together).
+ */
+export async function createOrder(input: OrderInput, adminUserId: number | null, extras: CreateOrderExtras = {}, outer?: Tx) {
+  const run = async (tx: Tx) => {
     const locationId = input.locationId ?? (await defaultLocationId(tx));
     const built = await build(tx, input, locationId, undefined, { customerId: extras.customerId ?? null, enforceMinimum: extras.enforceMinimum });
     if (extras.expectedTotal !== undefined && Math.abs(extras.expectedTotal - built.values.total) > 0.009) {
@@ -409,7 +418,8 @@ export async function createOrder(input: OrderInput, adminUserId: number | null,
     if (built.coupon?.isNew) await useCoupon(tx, built.coupon.id);
     await event(tx, order!.id, 'created', `Order placed (${input.channel}), ${taka(built.values.total)}${built.coupon ? `, coupon ${built.coupon.code}` : ''}`, adminUserId);
     return { ...order!, customerId, newCustomer: customer.created };
-  });
+  };
+  return outer ? run(outer) : db.transaction(run);
 }
 
 /** One more use of a coupon. Its row is already locked by this order's transaction, so the count stays exact. */
