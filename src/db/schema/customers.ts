@@ -55,6 +55,8 @@ export const customers = pgTable(
     pushOrders: boolean('push_orders').notNull().default(true),
     pushOffers: boolean('push_offers').notNull().default(true),
     pushWishlist: boolean('push_wishlist').notNull().default(true),
+    /** The last "saved items" alert: at most one a day. */
+    lastWishlistAlertAt: timestamptz('last_wishlist_alert_at'),
     ...timestamps,
   },
   (t) => [
