@@ -260,6 +260,13 @@
       "when": 1795152793302,
       "tag": "0036_quotations",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1795154353653,
+      "tag": "0037_quotation_revisions",
+      "breakpoints": true
     }
   ]
 }

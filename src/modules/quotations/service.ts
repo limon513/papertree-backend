@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { asc, eq, type SQL } from 'drizzle-orm';
+import { asc, desc, eq, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.ts';
 import { customers, orders, quotationItems, quotations, type OrderType } from '../../db/schema/index.ts';
 import { badRequest } from '../../lib/errors.ts';
@@ -21,8 +21,16 @@ export const quoteNumber = (n: number) => `Q-${n}`;
 const cents = (n: number) => Math.round(n * 100) / 100;
 type Exec = Tx | typeof db;
 
-/** Priced lines for a new quotation. Every product must still be for sale. */
-export async function priceQuoteLines(exec: Exec, items: { variantId: number; quantity: number }[], type: OrderType) {
+/** A line as asked for: staff may type a special price per piece (then no bulk discount unless `bulk`). */
+export interface QuoteLineIn {
+  variantId: number;
+  quantity: number;
+  unitPrice?: number;
+  bulk?: boolean;
+}
+
+/** Priced lines for a new quotation, exactly as an order prices them. Every product must still be for sale. */
+export async function priceQuoteLines(exec: Exec, items: QuoteLineIn[], type: OrderType) {
   const lines = mergeLines(items);
   const variants = new Map((await loadVariants(exec, lines.map((l) => l.variantId), await defaultLocationId(exec))).map((v) => [v.variantId, v]));
   for (const line of lines) {
@@ -57,17 +65,35 @@ export async function priceQuoteLines(exec: Exec, items: { variantId: number; qu
 }
 
 export interface NewQuotation {
-  items: { variantId: number; quantity: number }[];
+  items: QuoteLineIn[];
   name: string;
   organisation: string | null;
   phone: string;
   email: string | null;
   note: string | null;
+  /** Staff only. */
+  terms?: string | null;
+  /** Staff only: fixed delivery (0 = free); null = worked out when ordering. */
+  deliveryFee?: number | null;
+  /** Staff only: how many days it is valid (website quotations: QUOTE_DAYS). */
+  validDays?: number;
 }
 
-/** Makes a quotation (one transaction). Answers its number and secret link token. */
-export async function createQuotation(input: NewQuotation, ctx: { type: OrderType; customerId: number | null; source: 'website' | 'staff'; adminUserId: number | null }) {
+/**
+ * Makes a quotation. Answers its number and secret link token. `replaces`: a revision by staff, made in
+ * the same transaction as the old quotation becomes "replaced" (so the old prices can no longer be ordered).
+ */
+export async function createQuotation(
+  input: NewQuotation,
+  ctx: { type: OrderType; customerId: number | null; source: 'website' | 'staff'; adminUserId: number | null; replaces?: number },
+) {
   return db.transaction(async (tx) => {
+    if (ctx.replaces !== undefined) {
+      const [old] = await tx.select({ status: quotations.status }).from(quotations).where(eq(quotations.id, ctx.replaces)).for('update');
+      if (!old) throw badRequest('The quotation to revise was not found');
+      if (old.status !== 'open') throw badRequest(`Only an open or expired quotation can be revised (this one is ${old.status}).`);
+      await tx.update(quotations).set({ status: 'replaced', updatedAt: new Date() }).where(eq(quotations.id, ctx.replaces));
+    }
     const priced = await priceQuoteLines(tx, input.items, ctx.type);
     const [q] = await tx
       .insert(quotations)
@@ -84,7 +110,10 @@ export async function createQuotation(input: NewQuotation, ctx: { type: OrderTyp
         note: input.note,
         subtotal: priced.subtotal,
         bulkDiscount: priced.bulkDiscount,
-        validUntil: new Date(Date.now() + QUOTE_DAYS * 86_400_000),
+        validUntil: new Date(Date.now() + (input.validDays ?? QUOTE_DAYS) * 86_400_000),
+        deliveryFee: input.deliveryFee ?? null,
+        terms: input.terms ?? null,
+        replacesId: ctx.replaces ?? null,
         createdBy: ctx.adminUserId,
       })
       .returning({ id: quotations.id, number: quotations.number, publicToken: quotations.publicToken });
@@ -100,9 +129,13 @@ export const shownStatus = (q: { status: string; validUntil: Date }, now = new D
 export async function quotationWithItems(where: SQL) {
   const [q] = await db.select().from(quotations).where(where);
   if (!q) return null;
-  const [items, [order]] = await Promise.all([
+  const version = { id: quotations.id, number: quotations.number, publicToken: quotations.publicToken };
+  const [items, [order], [newer], [older]] = await Promise.all([
     db.select().from(quotationItems).where(eq(quotationItems.quotationId, q.id)).orderBy(asc(quotationItems.position), asc(quotationItems.id)),
     q.orderId ? db.select({ number: orders.number, publicToken: orders.publicToken, id: orders.id }).from(orders).where(eq(orders.id, q.orderId)) : Promise.resolve([]),
+    // A revision of this one (when replaced), and the one this replaces.
+    q.status === 'replaced' ? db.select(version).from(quotations).where(eq(quotations.replacesId, q.id)).orderBy(desc(quotations.id)).limit(1) : Promise.resolve([]),
+    q.replacesId ? db.select(version).from(quotations).where(eq(quotations.id, q.replacesId)) : Promise.resolve([]),
   ]);
   const images = await imagesById(items.map((i) => i.imageId));
   return {
@@ -110,6 +143,8 @@ export async function quotationWithItems(where: SQL) {
     status: shownStatus(q),
     items: items.map(({ imageId, quotationId: _q, ...i }) => ({ ...i, image: imageId ? (images.get(imageId) ?? null) : null })),
     order: order ?? null,
+    replacedBy: newer ?? null,
+    replaces: older ?? null,
   };
 }
 
@@ -132,12 +167,15 @@ export async function quotationTotal(q: typeof quotations.$inferSelect, place: {
   const checkout = { ...shop, wholesale: wholesaleTermsFor(customer, shop.wholesale) };
   const wholesale = q.type === 'wholesale';
   const delivery = quote(zones, checkout, { districtId: place.districtId, areaId: place.areaId, subtotal: q.subtotal, weightKg: weightGrams / 1000, wholesale });
-  const total = delivery.fee === null ? null : cents(q.subtotal + delivery.fee);
+  // Delivery fixed on the quotation by staff (0 = free) wins over the zone's charge.
+  const fee = q.deliveryFee ?? delivery.fee;
+  const total = fee === null ? null : cents(q.subtotal + fee);
   return {
-    deliveryFee: delivery.fee,
+    deliveryFee: fee,
     total,
     advance: wholesale && total !== null ? advanceFor(total, checkout.wholesale.advancePercent) : 0,
-    minOrderAmount: wholesale ? checkout.wholesale.minOrderAmount : null,
+    // Staff quotations may be below the minimum (staff agreed it).
+    minOrderAmount: wholesale && q.source === 'website' ? checkout.wholesale.minOrderAmount : null,
   };
 }
 

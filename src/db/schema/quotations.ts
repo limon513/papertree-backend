@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, numeric, pgSequence, pgTable, text } from 'drizzle-orm/pg-core';
+import { index, integer, numeric, pgSequence, pgTable, text, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { adminUsers } from './admin.ts';
 import { customers } from './customers.ts';
 import { media } from './media.ts';
@@ -9,8 +9,8 @@ import { id, ref, timestamps, timestamptz } from './_helpers.ts';
 
 const money = (name: string) => numeric(name, { precision: 12, scale: 2, mode: 'number' });
 
-export const QUOTATION_STATUSES = ['open', 'ordered', 'cancelled'] as const;
-/** open (valid until its date, then shown as expired), ordered (the customer ordered it), cancelled. */
+export const QUOTATION_STATUSES = ['open', 'ordered', 'cancelled', 'replaced'] as const;
+/** open (valid until its date, then shown as expired), ordered (the customer ordered it), cancelled, replaced (staff made a new version). */
 export type QuotationStatus = (typeof QUOTATION_STATUSES)[number];
 
 /** Quotation numbers: Q-1001, Q-1002, ... */
@@ -48,6 +48,15 @@ export const quotations = pgTable(
     subtotal: money('subtotal').notNull(),
     bulkDiscount: money('bulk_discount').notNull().default(0),
     validUntil: timestamptz('valid_until').notNull(),
+    /** Delivery fixed by staff (0 = free). null: worked out for the place when the customer orders. */
+    deliveryFee: money('delivery_fee'),
+    /** Staff's terms on the document ("Prices include delivery inside Dhaka", "50% advance"). */
+    terms: text('terms'),
+    /** The quotation this one replaces (a revision by staff); the old one is then "replaced". */
+    replacesId: ref('replaces_id').references((): AnyPgColumn => quotations.id, { onDelete: 'set null' }),
+    /** Sent to the customer by SMS or email: the last time, and how many times. */
+    sentAt: timestamptz('sent_at'),
+    timesSent: integer('times_sent').notNull().default(0),
     orderId: ref('order_id').references(() => orders.id, { onDelete: 'set null' }),
     orderedAt: timestamptz('ordered_at'),
     cancelledAt: timestamptz('cancelled_at'),

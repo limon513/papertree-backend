@@ -104,6 +104,11 @@ storeQuotationsRouter.get('/:token', async (req, res) => {
     validUntil: x.validUntil,
     subtotal: x.subtotal,
     bulkDiscount: x.bulkDiscount,
+    /** Fixed by staff (0 = free); null: worked out when ordering. */
+    deliveryFee: x.deliveryFee,
+    terms: x.terms,
+    /** Replaced by a newer version (staff revised it): its number and link token. */
+    replacedBy: view.replacedBy ? { number: quoteNumber(view.replacedBy.number), token: view.replacedBy.publicToken } : null,
     items: view.items.map((i) => ({
       variantId: i.variantId,
       name: i.name,
@@ -170,6 +175,7 @@ storeQuotationsRouter.post('/:token/order', orderLimiter, async (req, res) => {
       quoteNo = quoteNumber(q.number);
       if (q.status === 'ordered') throw conflict('This quotation is already ordered.');
       if (q.status === 'cancelled') throw badRequest('This quotation was cancelled. Please ask us for a new one.');
+      if (q.status === 'replaced') throw badRequest('This quotation was updated. Please order the new version (see the link at the top of the page).');
       if (shownStatus(q) === 'expired') throw new AppError(410, 'EXPIRED', 'This quotation has expired. Get a new one at today’s prices.');
 
       // Whose order: the quotation's customer, else the signed-in shopper, else found by phone.
@@ -203,13 +209,15 @@ storeQuotationsRouter.post('/:token/order', orderLimiter, async (req, res) => {
             fixed: { lineTotal: i.lineTotal, bulkPercent: i.bulkPercent, bulkDiscount: i.bulkDiscount },
           })),
           discount: 0,
-          deliveryFee: null,
+          // Delivery fixed on the quotation by staff (0 = free); else the zone's charge now.
+          deliveryFee: q.deliveryFee,
           customerNote: note,
           staffNote: null,
           couponCode: null,
         },
         null,
-        { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url'), customerId: customerId ?? undefined, enforceMinimum: q.type === 'wholesale' },
+        // The wholesale minimum holds for quotations made on the website; staff may agree less.
+        { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url'), customerId: customerId ?? undefined, enforceMinimum: q.type === 'wholesale' && q.source === 'website' },
         tx,
       );
       await tx.update(quotations).set({ status: 'ordered', orderId: made.id, orderedAt: new Date(), updatedAt: new Date() }).where(eq(quotations.id, q.id));
