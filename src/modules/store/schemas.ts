@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SUPPLIER_WAYS } from '../../db/schema/index.ts';
 import { bdPhone } from '../../lib/phone.ts';
 import { emailSchema, nameSchema, optionalText } from '../admin/schemas.ts';
 
@@ -88,6 +89,30 @@ export const productRequestBody = z
     website: z.string().max(200).optional(),
   })
   .meta({ id: 'StoreProductRequestBody' });
+
+/** "Sell with us": a supplier's details. */
+export const supplierLeadBody = z
+  .object({
+    businessName: z.string({ error: 'Enter your business or brand name' }).trim().min(2, { error: 'Enter your business or brand name' }).max(120),
+    contactName: z.string({ error: 'Enter your name' }).trim().min(1, { error: 'Enter your name' }).max(100),
+    phone: bdPhone,
+    email: z.union([z.literal('').transform(() => null), z.null(), z.string().trim().toLowerCase().pipe(z.email({ error: 'Enter a valid email address' }))]).default(null),
+    location: z.string().trim().max(100).transform((s) => s || null).nullable().default(null),
+    products: z.string({ error: 'Tell us what you sell' }).trim().min(3, { error: 'Tell us what you sell' }).max(1000),
+    ways: z.array(z.enum(SUPPLIER_WAYS)).max(3).default([]).transform((w) => [...new Set(w)]),
+    link: z
+      .string()
+      .trim()
+      .max(300)
+      .transform((s) => (s && !/^https?:\/\//i.test(s) ? `https://${s}` : s || null))
+      .pipe(z.union([z.null(), z.url({ protocol: /^https?$/, error: 'Enter a web address, like facebook.com/yourpage' })]))
+      .nullable()
+      .default(null),
+    message: z.string().trim().max(2000).transform((s) => s || null).nullable().default(null),
+    /** Left empty by people; bots fill every box. */
+    website: z.string().max(200).optional(),
+  })
+  .meta({ id: 'StoreSupplierLeadBody' });
 
 /** Placing an order from the website (cash on delivery for now). */
 export const checkoutBody = z

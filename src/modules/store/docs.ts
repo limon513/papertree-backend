@@ -3,7 +3,8 @@ import type { ZodOpenApiPathsObject } from 'zod-openapi';
 import { errors, json, jsonBody } from '../../docs/common.ts';
 import { locationsSchema } from '../admin/settings/schemas.ts';
 import { trackBody } from './track.ts';
-import { cartBody, checkoutBody, forYouQuery, productListQuery, productRequestBody, searchLogBody, suggestQuery } from './schemas.ts';
+import { cartBody, checkoutBody, forYouQuery, productListQuery, productRequestBody,
+  supplierLeadBody, searchLogBody, suggestQuery } from './schemas.ts';
 
 const tags = ['Store (public)'];
 const open = z.object({}).catchall(z.unknown());
@@ -111,6 +112,18 @@ export const storeDocs: ZodOpenApiPathsObject = {
         'A shopper asks for something the shop does not have (from a search that found nothing). Staff see it in the admin. ' +
         'At most 5 per visitor per hour. "website" must stay empty (a hidden box that only bots fill).',
       requestBody: jsonBody(productRequestBody),
+      responses: { '201': json(z.object({ ok: z.boolean() }), 'Sent'), ...errors(400, 429) },
+    },
+  },
+  '/v1/store/supplier-leads': {
+    post: {
+      tags,
+      summary: 'Sell with us (supplier lead)',
+      description:
+        'A brand, maker or wholesaler who wants to sell through the shop leaves their details. Staff see it in the admin (Requests & Leads → Sell with us) ' +
+        'and get an email at the staff address (Integrations → Email). ways: wholesale (they supply us), brand (we list their products and order per sale), unsure. ' +
+        'A link without https:// gets it added. At most 5 per visitor per hour (shared with product requests). "website" must stay empty (bots fill it).',
+      requestBody: jsonBody(supplierLeadBody),
       responses: { '201': json(z.object({ ok: z.boolean() }), 'Sent'), ...errors(400, 429) },
     },
   },
