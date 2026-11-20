@@ -19,6 +19,13 @@ export const wishlistItems = pgTable(
     /** The lowest price shown for the product when saved. */
     priceWhenSaved: numeric('price_when_saved', { precision: 12, scale: 2, mode: 'number' }),
     inStockWhenSaved: boolean('in_stock_when_saved').notNull().default(true),
+    /**
+     * What the customer was last told (by an alert): the price and stock then. The next alert is only
+     * for a change since (cheaper again, or back after running out). Null: nothing told yet.
+     */
+    alertedPrice: numeric('alerted_price', { precision: 12, scale: 2, mode: 'number' }),
+    alertedInStock: boolean('alerted_in_stock'),
+    lastAlertAt: timestamptz('last_alert_at'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.customerId, t.productId] }), index('wishlist_items_product_id_idx').on(t.productId)],

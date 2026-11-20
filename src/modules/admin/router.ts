@@ -1,3 +1,4 @@
+import { pushCampaignsRouter } from './push/routes.ts';
 import { Router } from 'express';
 import { requireAdmin, requireModule, requireSuperAdmin } from '../../middleware/admin-auth.ts';
 import { authRouter } from './auth/routes.ts';
@@ -48,6 +49,7 @@ adminRouter.use('/product-requests', requireAdmin, requireModule('leads'), produ
 adminRouter.use('/banners', requireAdmin, requireModule('content'), bannersRouter);
 adminRouter.use('/pages', requireAdmin, requireModule('content'), pagesRouter);
 adminRouter.use('/coupons', requireAdmin, requireModule('marketing'), couponsRouter);
+adminRouter.use('/push-campaigns', requireAdmin, requireModule('marketing'), pushCampaignsRouter);
 adminRouter.use('/seo', requireAdmin, requireModule('content'), seoRouter);
 adminRouter.use('/migration', requireAdmin, requireSuperAdmin, migrationRouter);
 adminRouter.use('/integrations', requireAdmin, requireSuperAdmin, integrationsRouter);

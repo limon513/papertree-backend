@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getIntegration, stateOf } from '../admin/integrations/service.ts';
 import { unauthorized } from '../../lib/errors.ts';
 import { preferencesOf, registerDevice, removeDevice, setPreferences } from '../push/service.ts';
+import { countTap } from '../push/campaigns.ts';
 import { currentCustomer } from './account/session.ts';
 
 /** Push notifications on the website: devices that allowed them, and what the customer wants. */
@@ -40,6 +41,14 @@ pushRouter.post('/push/devices', limiter, async (req, res) => {
 pushRouter.post('/push/devices/remove', limiter, async (req, res) => {
   const { token } = deviceBody.pick({ token: true }).parse(req.body);
   await removeDevice(token);
+  res.status(204).end();
+});
+
+/** A tap on an offer (sent by the device's service worker; only a count, nothing personal). */
+const tapLimiter = rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
+pushRouter.post('/push/tapped', tapLimiter, async (req, res) => {
+  const id = Number(req.query.c);
+  if (Number.isInteger(id) && id > 0) await countTap(id);
   res.status(204).end();
 });
 

@@ -73,6 +73,8 @@ export interface PushMessage {
   image?: string | null;
   /** For counting taps (offers). */
   id?: string;
+  /** Where the device reports a tap (offers): an address on the API. */
+  tap?: string;
 }
 
 export type SendOutcome = { result: 'sent' } | { result: 'gone' } | { result: 'failed'; error: string };
@@ -82,7 +84,7 @@ export async function sendOne(setup: PushSetup, token: string, msg: PushMessage,
   const site = env.STOREFRONT_URL.replace(/\/$/, '');
   const link = msg.url.startsWith('http') ? msg.url : `${site}${msg.url}`;
   // Data only: the website's own service worker shows it, the same on every browser.
-  const data: Record<string, string> = { title: msg.title, body: msg.body, url: link, tag: msg.tag ?? '', image: msg.image ?? '', id: msg.id ?? '' };
+  const data: Record<string, string> = { title: msg.title, body: msg.body, url: link, tag: msg.tag ?? '', image: msg.image ?? '', id: msg.id ?? '', tap: msg.tap ?? '' };
   const body = JSON.stringify({
     message: { token, data, webpush: { headers: { TTL: String(opts.ttlSeconds), Urgency: opts.urgent ? 'high' : 'normal' }, fcm_options: { link } } },
   });

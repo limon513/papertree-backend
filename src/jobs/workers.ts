@@ -5,6 +5,8 @@ import { sendOrderEmails } from '../modules/store/order-emails.ts';
 import { sendOrderUpdate, sendPlacedSms } from '../modules/store/order-updates.ts';
 import { checkInBackground } from '../modules/admin/orders/courier-record.ts';
 import { checkTry } from '../modules/payments/service.ts';
+import { sendBatch, startCampaign } from '../modules/push/campaigns.ts';
+import { runWishlistAlerts } from '../modules/push/wishlist-alerts.ts';
 import type { OrderUpdate } from '../modules/store/order-updates.ts';
 import { QUEUES, startBoss } from './boss.ts';
 
@@ -31,5 +33,16 @@ export async function startWorkers() {
   await boss.work<{ tranId: string }>(QUEUES.paymentCheck, { batchSize: 1, pollingIntervalSeconds: 10 }, async ([job]) => {
     if (job) await checkTry(job.data.tranId);
   });
+  await boss.work<{ campaignId: number }>(QUEUES.pushCampaign, { batchSize: 1, pollingIntervalSeconds: 10 }, async ([job]) => {
+    if (job) await startCampaign(job.data.campaignId);
+  });
+  // Several batches at once per worker process (each sends 20 at a time); more processes share the work.
+  await boss.work<{ campaignId: number; ids: number[] }>(QUEUES.pushBatch, { batchSize: 1, pollingIntervalSeconds: 2, localConcurrency: 4 }, async ([job]) => {
+    if (job) await sendBatch(job.data.campaignId, job.data.ids);
+  });
+  await boss.work(QUEUES.wishlistAlerts, { batchSize: 1, pollingIntervalSeconds: 30 }, async () => {
+    await runWishlistAlerts();
+  });
+  await boss.schedule(QUEUES.wishlistAlerts, '0 11 * * *', {}, { tz: 'Asia/Dhaka' });
   logger.info('Background workers started');
 }

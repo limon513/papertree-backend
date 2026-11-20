@@ -23,6 +23,12 @@ export const QUEUES = {
   oldSiteRead: 'old-site-read',
   /** Data: { tranId }. An online payment try with no answer yet: asked from SSLCommerz a while later. */
   paymentCheck: 'payment-check',
+  /** Data: { campaignId }. A push offer whose time has come: its devices are split into batches. */
+  pushCampaign: 'push-campaign',
+  /** Data: { campaignId, ids }. One batch of devices (up to 500) for a push offer. */
+  pushBatch: 'push-batch',
+  /** No data. Once a day (11 am Dhaka): saved items back in stock or cheaper, one alert per customer. */
+  wishlistAlerts: 'wishlist-alerts',
 } as const;
 
 let started: Promise<PgBoss> | null = null;
@@ -43,6 +49,11 @@ export function startBoss() {
     await boss.createQueue(QUEUES.oldSiteRead, { expireInSeconds: 3 * 3600, retryLimit: 0 });
     // SSLCommerz busy: tried again later (settling a payment twice changes nothing).
     await boss.createQueue(QUEUES.paymentCheck, { expireInSeconds: 120, retryLimit: 3, retryDelay: 600 });
+    // Push offers: splitting is retried (it only starts once); a batch is not (no device gets it twice).
+    await boss.createQueue(QUEUES.pushCampaign, { expireInSeconds: 300, retryLimit: 2, retryDelay: 60 });
+    await boss.createQueue(QUEUES.pushBatch, { expireInSeconds: 900, retryLimit: 0 });
+    // Daily, mid-morning in Bangladesh; one run at a time (a run that failed is tried once more).
+    await boss.createQueue(QUEUES.wishlistAlerts, { expireInSeconds: 1800, retryLimit: 1, retryDelay: 600, policy: 'singleton' });
     return boss;
   })();
   return started;

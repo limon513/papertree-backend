@@ -225,6 +225,20 @@
       "when": 1795047833972,
       "tag": "0031_push_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795050679509,
+      "tag": "0032_push_campaigns",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795052246954,
+      "tag": "0033_wishlist_alerts",
+      "breakpoints": true
     }
   ]
 }
