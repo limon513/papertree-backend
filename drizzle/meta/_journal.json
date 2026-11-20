@@ -253,6 +253,13 @@
       "when": 1795150951045,
       "tag": "0035_supplier_leads",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795152793302,
+      "tag": "0036_quotations",
+      "breakpoints": true
     }
   ]
 }
