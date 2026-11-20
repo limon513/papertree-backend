@@ -4,6 +4,7 @@ import { adminUsers } from './admin.ts';
 import { coupons } from './coupons.ts';
 import { customers } from './customers.ts';
 import { media } from './media.ts';
+import { brands, type BrandShipsTo } from './catalog.ts';
 import { products, productVariants, stockLocations } from './products.ts';
 import { deliveryZones } from './settings.ts';
 import { id, ref, timestamps, timestamptz } from './_helpers.ts';
@@ -163,7 +164,7 @@ export const orderPayments = pgTable(
   (t) => [index('order_payments_order_id_idx').on(t.orderId)],
 );
 
-export type OrderEventType = 'created' | 'edited' | 'status' | 'payment' | 'courier' | 'note';
+export type OrderEventType = 'created' | 'edited' | 'status' | 'payment' | 'courier' | 'note' | 'purchase';
 
 /** The order's history: what happened, when, and who did it. */
 export const orderEvents = pgTable(
@@ -197,4 +198,56 @@ export const courierChecks = pgTable(
     data: jsonb('data').notNull(),
     checkedAt: timestamptz('checked_at').notNull().defaultNow(),
   },
+);
+
+// ---- Purchase orders to brands ----
+
+export const PURCHASE_ORDER_STATUSES = ['draft', 'sent', 'cancelled'] as const;
+export type PurchaseOrderStatus = (typeof PURCHASE_ORDER_STATUSES)[number];
+/** One line of a purchase order, as it was sent (no prices: those are settled with the brand). */
+export interface PurchaseOrderLine {
+  name: string;
+  variantLabel: string | null;
+  sku: string | null;
+  quantity: number;
+}
+
+/** Purchase order numbers: PO-1001, PO-1002, ... */
+export const purchaseOrderNumberSeq = pgSequence('purchase_order_number_seq', { startWith: 1001 });
+
+/**
+ * A purchase order to a brand, for the products it supplies in one customer order. Made as a draft
+ * when the order is confirmed (one per brand); staff look over the email and send it. Its lines are
+ * the order's lines until sent, then the copy that was sent is kept.
+ */
+export const purchaseOrders = pgTable(
+  'purchase_orders',
+  {
+    id: id(),
+    number: integer('number')
+      .notNull()
+      .unique()
+      .default(sql`nextval('purchase_order_number_seq')`),
+    orderId: ref('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    brandId: ref('brand_id').references(() => brands.id, { onDelete: 'set null' }),
+    /** The brand's name when made (kept if the brand is renamed or removed). */
+    brandName: text('brand_name').notNull(),
+    status: text('status').$type<PurchaseOrderStatus>().notNull().default('draft'),
+    /** Who delivers to whom: to our shop, or straight to the customer. Starts as the brand's usual choice. */
+    shipTo: text('ship_to').$type<BrandShipsTo>().notNull(),
+    /** A note from staff, put in the email ("Please pack as a gift"). */
+    note: text('note'),
+    /** What was sent last: the address, the lines, and when / by whom. */
+    sentTo: text('sent_to'),
+    lines: jsonb('lines').$type<PurchaseOrderLine[]>(),
+    sentAt: timestamptz('sent_at'),
+    sentBy: ref('sent_by').references(() => adminUsers.id, { onDelete: 'set null' }),
+    timesSent: integer('times_sent').notNull().default(0),
+    /** The brand was told the order is off (after the customer order was cancelled or returned). */
+    cancelSentAt: timestamptz('cancel_sent_at'),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('purchase_orders_order_brand_idx').on(t.orderId, t.brandId), index('purchase_orders_status_idx').on(t.status)],
 );

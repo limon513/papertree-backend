@@ -20,6 +20,7 @@ import { AppError, badRequest, notFound } from '../../../lib/errors.ts';
 import { rememberAddress, wholesaleTermsFor } from '../customers/service.ts';
 import { changeStock, type Tx } from '../products/service.ts';
 import { AREAS, DISTRICTS, getSettings, listZones, quote } from '../settings/service.ts';
+import { dropDrafts, syncPurchaseOrders } from './purchase-orders.ts';
 import { STATUS_FLOW, type OrderInput } from './schemas.ts';
 
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -466,6 +467,8 @@ export async function updateOrder(id: number, input: OrderInput, adminUserId: nu
       order.couponCode !== (built.coupon?.code ?? null) && (built.coupon ? `coupon ${built.coupon.code}` : `coupon ${order.couponCode} removed`),
     ].filter(Boolean);
     await event(tx, id, 'edited', `Order changed${changes.length ? `: ${changes.join(', ')}` : ''}`, adminUserId);
+    // A confirmed order's brand items may have changed: its purchase order drafts follow.
+    await syncPurchaseOrders(tx, id);
   });
 }
 
@@ -570,6 +573,11 @@ export async function setStatus(
         ...(input.trackingCode !== undefined && { trackingCode: input.trackingCode }),
       })
       .where(eq(orders.id, id));
+
+    // Products supplied by brands: purchase order drafts when confirmed (staff send them); unsent
+    // drafts go when the order is cancelled, returned or back to pending.
+    if (['confirmed', 'packed', 'shipped', 'delivered'].includes(input.status)) await syncPurchaseOrders(tx, id);
+    else await dropDrafts(tx, id);
 
     const courier = input.status === 'shipped' && input.courier ? ` with ${input.courier}${input.trackingCode ? ` (${input.trackingCode})` : ''}` : '';
     await event(tx, id, 'status', `${STATUS_WORDS[input.status]}${courier}${input.note ? `: ${input.note}` : ''}`, adminUserId);

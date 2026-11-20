@@ -65,6 +65,11 @@ export const products = pgTable(
     /** Cleaned HTML from the editor. */
     description: text('description'),
     brandId: ref('brand_id').references(() => brands.id, { onDelete: 'set null' }),
+    /**
+     * Not kept in our stock: ordered from its brand when a customer buys it (a purchase order is made
+     * when the order is confirmed). Such products do not track stock.
+     */
+    suppliedByBrand: boolean('supplied_by_brand').notNull().default(false),
     tags: text('tags').array().notNull().default([]),
     /** Approved reviews: their count and average rating (kept up to date when staff decide). */
     ratingCount: integer('rating_count').notNull().default(0),

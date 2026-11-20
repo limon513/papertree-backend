@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, like, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '../../../db/client.ts';
 import {
   brands,
@@ -286,6 +286,17 @@ export async function bulkUpdate(input: ProductBulkInput) {
         if (rows.length) await touch(tx, rows.map((r) => r.productId));
         return rows.length;
       }
+      case 'set-supplied': {
+        if (input.supplied) {
+          // Only products with a brand: someone must take the purchase order.
+          const [noBrand] = await tx.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(products).where(and(inArray(products.id, ids), isNull(products.brandId)));
+          if (noBrand?.n) throw badRequest(`${noBrand.n} of the chosen products ${noBrand.n === 1 ? 'has' : 'have'} no brand. Set the brand first.`);
+        }
+        const rows = await tx.update(products).set({ suppliedByBrand: input.supplied, updatedAt: new Date() }).where(inArray(products.id, ids)).returning({ id: products.id });
+        // Not in our stock: never sold out here.
+        if (input.supplied) await tx.update(productVariants).set({ trackStock: false }).where(inArray(productVariants.productId, ids));
+        return rows.length;
+      }
       case 'delete': {
         const rows = await tx.delete(products).where(inArray(products.id, ids)).returning({ id: products.id });
         return rows.length;
@@ -332,6 +343,7 @@ export async function saveProduct(input: ProductInput, adminUserId: number | nul
     shortDescription: input.shortDescription,
     description: input.description === null ? null : cleanHtml(input.description),
     brandId: input.brandId,
+    suppliedByBrand: input.suppliedByBrand,
     tags: input.tags,
     options: input.options,
     specs: input.specs,
@@ -420,7 +432,8 @@ export async function saveProduct(input: ProductInput, adminUserId: number | nul
         costPrice: v.costPrice,
         weightGrams: v.weightGrams,
         imageId: v.imageId,
-        trackStock: v.trackStock,
+        // Supplied by the brand: never sold out here, the brand is asked for it.
+        trackStock: input.suppliedByBrand ? false : v.trackStock,
         allowBackorder: v.allowBackorder,
         lowStockThreshold: v.lowStockThreshold,
         position,
@@ -457,6 +470,7 @@ export async function duplicateProduct(id: number, adminUserId: number | null) {
       status: 'draft',
       shortDescription: p.shortDescription,
       description: p.description,
+      suppliedByBrand: p.suppliedByBrand,
       brandId: p.brandId,
       categoryIds: p.categoryIds,
       primaryCategoryId: p.primaryCategoryId,

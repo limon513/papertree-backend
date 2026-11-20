@@ -80,6 +80,8 @@ export const productBody = z
     shortDescription: optionalText(1000).default(null),
     description: z.string().max(100_000, { error: 'Description is too long' }).nullable().default(null),
     brandId: id.nullable().default(null),
+    /** Not in our stock: ordered from the brand when a customer buys it (its variants then do not track stock). */
+    suppliedByBrand: z.boolean().default(false),
     categoryIds: z.array(id).max(20, { error: 'At most 20 categories' }).default([]),
     /** Main category. Must be one of categoryIds. Defaults to the first. */
     primaryCategoryId: id.nullable().default(null),
@@ -108,6 +110,9 @@ export const productBody = z
   })
   .superRefine((p, ctx) => {
     const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
+
+    // Ordered from its brand: there must be one.
+    if (p.suppliedByBrand && !p.brandId) issue(['brandId'], 'Choose the brand that supplies it');
 
     // Option names must differ.
     const names = p.options.map((o) => o.name.toLowerCase());
@@ -173,6 +178,8 @@ export const productListQuery = z.object({
   labelId: z.coerce.number().int().positive().optional(),
   /** low: a variant is at or below its low-stock level. out: a variant has no stock. */
   stock: z.enum(['low', 'out']).optional(),
+  /** brand: only products supplied by their brand (not kept in stock). */
+  supplied: z.enum(['brand']).optional(),
   sort: z.enum(['updated', 'name', 'price', 'stock']).default('updated'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
@@ -193,6 +200,7 @@ export const productBulkBody = z
     z.object({ action: z.literal('set-brand'), ids: productIds, brandId: id.nullable() }),
     z.object({ action: z.literal('add-label'), ids: productIds, labelId: id }),
     z.object({ action: z.literal('remove-label'), ids: productIds, labelId: id }),
+    z.object({ action: z.literal('set-supplied'), ids: productIds, supplied: z.boolean() }),
     z.object({ action: z.literal('delete'), ids: productIds }),
   ])
   .meta({ id: 'ProductBulkBody' });
@@ -252,6 +260,7 @@ export const productSchema = z
     shortDescription: z.string().nullable(),
     description: z.string().nullable(),
     brandId: z.number().nullable(),
+    suppliedByBrand: z.boolean(),
     categoryIds: z.array(z.number()),
     primaryCategoryId: z.number().nullable(),
     labelIds: z.array(z.number()).meta({ description: 'Website tags (badges)' }),
@@ -276,6 +285,7 @@ export const productListItem = z.object({
   status: z.enum(PRODUCT_STATUSES),
   image: mediaSchema.nullable(),
   brand: z.object({ id: z.number(), name: z.string() }).nullable(),
+  suppliedByBrand: z.boolean(),
   variantCount: z.number(),
   priceMin: z.number(),
   priceMax: z.number(),

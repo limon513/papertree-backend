@@ -32,6 +32,9 @@ export const categories = pgTable(
   (t) => [index('categories_parent_id_idx').on(t.parentId, t.sortOrder)],
 );
 
+export const BRAND_SHIPS_TO = ['shop', 'customer'] as const;
+export type BrandShipsTo = (typeof BRAND_SHIPS_TO)[number];
+
 export const brands = pgTable(
   'brands',
   {
@@ -45,6 +48,10 @@ export const brands = pgTable(
     isFeatured: boolean('is_featured').notNull().default(false),
     seoTitle: text('seo_title'),
     seoDescription: text('seo_description'),
+    /** Where purchase orders go, for products the brand supplies (admin only, never on the website). */
+    orderEmail: text('order_email'),
+    /** Where the brand usually delivers what we order: to our shop, or straight to the customer. */
+    shipsTo: text('ships_to').$type<BrandShipsTo>().notNull().default('shop'),
     ...timestamps,
   },
   (t) => [uniqueIndex('brands_name_lower_idx').on(sql`lower(${t.name})`)],

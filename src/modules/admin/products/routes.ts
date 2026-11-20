@@ -36,6 +36,7 @@ productsRouter.get('/', async (req, res) => {
             .where(and(eq(productCategories.productId, products.id), eq(productCategories.categoryId, q.categoryId))),
         )
       : undefined,
+    q.supplied === 'brand' ? eq(products.suppliedByBrand, true) : undefined,
     q.labelId
       ? exists(db.select({ one: sql`1` }).from(productLabels).where(and(eq(productLabels.productId, products.id), eq(productLabels.labelId, q.labelId))))
       : undefined,
@@ -129,6 +130,7 @@ productsRouter.get('/', async (req, res) => {
         name: products.name,
         slug: products.slug,
         status: products.status,
+        suppliedByBrand: products.suppliedByBrand,
         updatedAt: products.updatedAt,
         imageId: mainImageId,
         brandId: brands.id,
@@ -166,6 +168,7 @@ productsRouter.get('/', async (req, res) => {
     status: r.status,
     image: r.image,
     brand: r.brandId === null ? null : { id: r.brandId, name: r.brandName! },
+    suppliedByBrand: r.suppliedByBrand,
     variantCount: r.variantCount ?? 0,
     priceMin: r.priceMin ?? 0,
     priceMax: r.priceMax ?? 0,
