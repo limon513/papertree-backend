@@ -140,6 +140,7 @@ ordersRouter.get('/variant-search', async (req, res) => {
     .where(
       and(
         ne(products.status, 'archived'),
+        eq(products.isCustom, false),
         ...words.map((w) =>
           or(
             ilike(products.name, `%${w}%`),

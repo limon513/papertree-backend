@@ -189,8 +189,12 @@ storeQuotationsRouter.post('/:token/order', orderLimiter, async (req, res) => {
       if (!items.length || items.some((i) => i.variantId === null || i.productId === null)) {
         throw badRequest('A product in this quotation no longer exists. Please ask us for a new quotation.');
       }
-      const live = await tx.select({ id: products.id, name: products.name, status: products.status }).from(products).where(inArray(products.id, items.map((i) => i.productId!)));
-      const gone = live.find((p) => p.status !== 'active') ?? (live.length < new Set(items.map((i) => i.productId)).size ? { name: 'A product' } : null);
+      const live = await tx
+        .select({ id: products.id, name: products.name, status: products.status, isCustom: products.isCustom })
+        .from(products)
+        .where(inArray(products.id, items.map((i) => i.productId!)));
+      // Custom products (made for this customer) are never on the website, but can be ordered from their quotation.
+      const gone = live.find((p) => p.status !== 'active' && !p.isCustom) ?? (live.length < new Set(items.map((i) => i.productId)).size ? { name: 'A product' } : null);
       if (gone) throw badRequest(`${gone.name} is no longer for sale. Please ask us for a new quotation.`);
 
       const made = await createOrder(

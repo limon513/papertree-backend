@@ -17,6 +17,7 @@ import { staffDocs } from '../modules/admin/staff/docs.ts';
 import { searchDocs } from '../modules/admin/search/docs.ts';
 import { requestsDocs } from '../modules/admin/requests/docs.ts';
 import { quotationsDocs } from '../modules/quotations/docs.ts';
+import { customRequestsDocs } from '../modules/admin/requests/custom-docs.ts';
 import { contentDocs } from '../modules/admin/content/docs.ts';
 import { couponsDocs } from '../modules/admin/coupons/docs.ts';
 import { integrationsDocs } from '../modules/admin/integrations/docs.ts';
@@ -60,6 +61,7 @@ export function buildOpenApiDocument() {
       ...searchDocs,
       ...requestsDocs,
       ...quotationsDocs,
+      ...customRequestsDocs,
       ...contentDocs,
       ...couponsDocs,
       ...integrationsDocs,

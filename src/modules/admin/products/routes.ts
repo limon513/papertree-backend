@@ -27,6 +27,8 @@ productsRouter.get('/', async (req, res) => {
   const q = productListQuery.parse(req.query);
 
   const filters: (SQL | undefined)[] = [
+    // Custom products (made for one customer on a quotation) are not part of the catalogue.
+    eq(products.isCustom, false),
     q.brandId ? eq(products.brandId, q.brandId) : undefined,
     q.categoryId
       ? exists(

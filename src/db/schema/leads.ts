@@ -1,4 +1,6 @@
-import { index, pgTable, text } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { index, integer, jsonb, pgSequence, pgTable, text } from 'drizzle-orm/pg-core';
+import { customers } from './customers.ts';
 import { adminUsers } from './admin.ts';
 import { id, ref, timestamps, timestamptz } from './_helpers.ts';
 
@@ -63,4 +65,67 @@ export const supplierLeads = pgTable(
     ...timestamps,
   },
   (t) => [index('supplier_leads_status_idx').on(t.status, t.createdAt)],
+);
+
+// ---- Custom orders ----
+
+export const CUSTOM_REQUEST_STATUSES = ['new', 'quoted', 'closed'] as const;
+/** new; quoted (staff sent a priced quotation); closed (done, or not possible: see the note). */
+export type CustomRequestStatus = (typeof CUSTOM_REQUEST_STATUSES)[number];
+/** The kinds of things made to order (the website's Custom Order Studio asks its own questions for each). */
+export const CUSTOM_KINDS = ['notebook', 'canvas', 'pen', 'paper', 'sketchbook', 'sticker', 'folder', 'other'] as const;
+export type CustomKind = (typeof CUSTOM_KINDS)[number];
+
+/** Custom request numbers: CR-1001, CR-1002, ... */
+export const customRequestNumberSeq = pgSequence('custom_request_number_seq', { startWith: 1001 });
+
+/**
+ * "Custom order": a customer describes something to be made (a printed notebook, branded pens...).
+ * Staff call them, then send a priced quotation with the custom item, which the customer orders online.
+ */
+export const customRequests = pgTable(
+  'custom_requests',
+  {
+    id: id(),
+    number: integer('number')
+      .notNull()
+      .unique()
+      .default(sql`nextval('custom_request_number_seq')`),
+    kind: text('kind').$type<CustomKind>().notNull(),
+    /** The answers, as asked ("Finished size": "A5"). */
+    specs: jsonb('specs').$type<{ label: string; value: string }[]>().notNull().default([]),
+    quantity: integer('quantity').notNull(),
+    notes: text('notes'),
+    name: text('name').notNull(),
+    phone: text('phone').notNull(),
+    email: text('email'),
+    city: text('city'),
+    /** Only when signed in (needed to attach files). */
+    customerId: ref('customer_id').references(() => customers.id, { onDelete: 'set null' }),
+    status: text('status').$type<CustomRequestStatus>().notNull().default('new'),
+    staffNote: text('staff_note'),
+    handledBy: ref('handled_by').references(() => adminUsers.id, { onDelete: 'set null' }),
+    handledAt: timestamptz('handled_at'),
+    ...timestamps,
+  },
+  (t) => [index('custom_requests_status_idx').on(t.status, t.createdAt)],
+);
+
+/** Artwork for a custom request (images or PDF, signed-in customers only). Kept under a long random name. */
+export const customRequestFiles = pgTable(
+  'custom_request_files',
+  {
+    id: id(),
+    /** null until the request is sent. */
+    requestId: ref('request_id').references(() => customRequests.id, { onDelete: 'cascade' }),
+    customerId: ref('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    storageKey: text('storage_key').notNull(),
+    fileName: text('file_name').notNull(),
+    contentType: text('content_type').notNull(),
+    size: integer('size').notNull(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('custom_request_files_request_idx').on(t.requestId)],
 );

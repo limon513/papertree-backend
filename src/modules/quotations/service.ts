@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { asc, desc, eq, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.ts';
-import { customers, orders, quotationItems, quotations, type OrderType } from '../../db/schema/index.ts';
+import { customers, customRequests, orders, products, productVariants, quotationItems, quotations, type OrderType } from '../../db/schema/index.ts';
 import { badRequest } from '../../lib/errors.ts';
 import { wholesaleTermsFor } from '../admin/customers/service.ts';
 import { advanceFor, defaultLocationId, loadVariants, mergeLines, priceLines, variantLabel } from '../admin/orders/service.ts';
@@ -29,13 +29,50 @@ export interface QuoteLineIn {
   bulk?: boolean;
 }
 
+/** A custom item on a staff quotation: made for this customer, priced by staff (no stock, no bulk discount). */
+export interface CustomLineIn {
+  custom: { name: string; details: string | null };
+  quantity: number;
+  unitPrice: number;
+}
+
+/**
+ * Custom items become products made for one customer (never on the website, left out of the product
+ * list), so the quotation, the order, stock, invoices and changes to the order treat them like any product.
+ */
+async function customProducts(tx: Tx, lines: (QuoteLineIn | CustomLineIn)[], adminUserId: number | null): Promise<QuoteLineIn[]> {
+  const out: QuoteLineIn[] = [];
+  for (const line of lines) {
+    if (!('custom' in line)) {
+      out.push(line);
+      continue;
+    }
+    const [p] = await tx
+      .insert(products)
+      .values({
+        name: line.custom.name,
+        slug: `custom-${randomBytes(6).toString('hex')}`,
+        status: 'draft',
+        isCustom: true,
+        description: line.custom.details ? `<p>${line.custom.details.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!).replace(/\n/g, '<br>')}</p>` : null,
+        shortDescription: line.custom.details?.slice(0, 1000) ?? null,
+        createdBy: adminUserId,
+      })
+      .returning({ id: products.id });
+    const [v] = await tx.insert(productVariants).values({ productId: p!.id, price: line.unitPrice, trackStock: false }).returning({ id: productVariants.id });
+    out.push({ variantId: v!.id, quantity: line.quantity, unitPrice: line.unitPrice, bulk: false });
+  }
+  return out;
+}
+
 /** Priced lines for a new quotation, exactly as an order prices them. Every product must still be for sale. */
 export async function priceQuoteLines(exec: Exec, items: QuoteLineIn[], type: OrderType) {
   const lines = mergeLines(items);
   const variants = new Map((await loadVariants(exec, lines.map((l) => l.variantId), await defaultLocationId(exec))).map((v) => [v.variantId, v]));
   for (const line of lines) {
     const v = variants.get(line.variantId);
-    if (!v || v.status !== 'active') {
+    // Custom products (made for one customer) are never on the website, but can be quoted.
+    if (!v || (v.status !== 'active' && !v.isCustom)) {
       throw badRequest(v ? `${v.name} is no longer for sale. Remove it and try again.` : 'A product is no longer for sale. Remove it and try again.', {
         [`items.${line.index}.variantId`]: 'No longer for sale',
       });
@@ -65,7 +102,7 @@ export async function priceQuoteLines(exec: Exec, items: QuoteLineIn[], type: Or
 }
 
 export interface NewQuotation {
-  items: QuoteLineIn[];
+  items: (QuoteLineIn | CustomLineIn)[];
   name: string;
   organisation: string | null;
   phone: string;
@@ -85,7 +122,7 @@ export interface NewQuotation {
  */
 export async function createQuotation(
   input: NewQuotation,
-  ctx: { type: OrderType; customerId: number | null; source: 'website' | 'staff'; adminUserId: number | null; replaces?: number },
+  ctx: { type: OrderType; customerId: number | null; source: 'website' | 'staff'; adminUserId: number | null; replaces?: number; customRequestId?: number | null },
 ) {
   return db.transaction(async (tx) => {
     if (ctx.replaces !== undefined) {
@@ -94,7 +131,12 @@ export async function createQuotation(
       if (old.status !== 'open') throw badRequest(`Only an open or expired quotation can be revised (this one is ${old.status}).`);
       await tx.update(quotations).set({ status: 'replaced', updatedAt: new Date() }).where(eq(quotations.id, ctx.replaces));
     }
-    const priced = await priceQuoteLines(tx, input.items, ctx.type);
+    const priced = await priceQuoteLines(tx, await customProducts(tx, input.items, ctx.adminUserId), ctx.type);
+    // Answering a custom request: it is now quoted.
+    if (ctx.customRequestId) {
+      const [r] = await tx.update(customRequests).set({ status: 'quoted', updatedAt: new Date() }).where(eq(customRequests.id, ctx.customRequestId)).returning({ id: customRequests.id });
+      if (!r) throw badRequest('The custom request was not found');
+    }
     const [q] = await tx
       .insert(quotations)
       .values({
@@ -114,6 +156,7 @@ export async function createQuotation(
         deliveryFee: input.deliveryFee ?? null,
         terms: input.terms ?? null,
         replacesId: ctx.replaces ?? null,
+        customRequestId: ctx.customRequestId ?? null,
         createdBy: ctx.adminUserId,
       })
       .returning({ id: quotations.id, number: quotations.number, publicToken: quotations.publicToken });

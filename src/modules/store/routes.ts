@@ -17,6 +17,7 @@ import { checkCouponUse, cleanCode, codeGuard, CouponError, couponFor, couponLab
 import { currentCustomer } from './account/session.ts';
 import { storeOrdersRouter } from './orders.ts';
 import { storeQuotationsRouter } from './quotations.ts';
+import { customRequestsRouter } from './custom-requests.ts';
 import { accountRouter } from './account/routes.ts';
 import { storeSeoRouter } from './seo.ts';
 import { getIntegration } from '../admin/integrations/service.ts';
@@ -653,6 +654,7 @@ interface StoreCartCoupon {
 
 storeRouter.use('/orders', storeOrdersRouter);
 storeRouter.use('/quotations', storeQuotationsRouter);
+storeRouter.use('/custom-requests', customRequestsRouter);
 storeRouter.use(accountRouter);
 storeRouter.use(wholesaleRouter);
 storeRouter.use(trackRouter);

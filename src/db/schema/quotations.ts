@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { index, integer, numeric, pgSequence, pgTable, text, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { adminUsers } from './admin.ts';
 import { customers } from './customers.ts';
+import { customRequests } from './leads.ts';
 import { media } from './media.ts';
 import { orders, type OrderType } from './orders.ts';
 import { products, productVariants } from './products.ts';
@@ -54,6 +55,8 @@ export const quotations = pgTable(
     terms: text('terms'),
     /** The quotation this one replaces (a revision by staff); the old one is then "replaced". */
     replacesId: ref('replaces_id').references((): AnyPgColumn => quotations.id, { onDelete: 'set null' }),
+    /** The custom order request this quotation answers. */
+    customRequestId: ref('custom_request_id').references(() => customRequests.id, { onDelete: 'set null' }),
     /** Sent to the customer by SMS or email: the last time, and how many times. */
     sentAt: timestamptz('sent_at'),
     timesSent: integer('times_sent').notNull().default(0),
