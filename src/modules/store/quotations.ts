@@ -15,7 +15,7 @@ import { emailSchema, nameSchema, optionalText } from '../admin/schemas.ts';
 import { startPayment } from '../payments/service.ts';
 import { onlinePaymentReady } from '../payments/sslcommerz.ts';
 import { createQuotation, quotationTotal, quotationWithItems, quoteNumber, shownStatus } from '../quotations/service.ts';
-import { currentCustomer, signIn } from './account/session.ts';
+import { actingStaff, currentCustomer, signIn } from './account/session.ts';
 
 /** Quotations on the website. Mounted at /v1/store/quotations. */
 export const storeQuotationsRouter = Router();
@@ -164,6 +164,8 @@ storeQuotationsRouter.post('/:token/order', orderLimiter, async (req, res) => {
     return;
   }
   const me = await currentCustomer(req);
+  // A staff member logged in as the customer: the order is marked as entered by them.
+  const staff = me ? await actingStaff(req) : null;
   if (paymentMethod === 'online' && !(await onlinePaymentReady())) throw badRequest('Online payment is not available right now. Please choose cash on delivery.');
 
   let order: Awaited<ReturnType<typeof createOrder>>;
@@ -219,13 +221,13 @@ storeQuotationsRouter.post('/:token/order', orderLimiter, async (req, res) => {
           staffNote: null,
           couponCode: null,
         },
-        null,
+        staff?.id ?? null,
         // The wholesale minimum holds for quotations made on the website; staff may agree less.
         { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url'), customerId: customerId ?? undefined, enforceMinimum: q.type === 'wholesale' && q.source === 'website' },
         tx,
       );
       await tx.update(quotations).set({ status: 'ordered', orderId: made.id, orderedAt: new Date(), updatedAt: new Date() }).where(eq(quotations.id, q.id));
-      await tx.insert(orderEvents).values({ orderId: made.id, type: 'note', message: `From quotation ${quoteNumber(q.number)} (quoted prices)`, adminUserId: null });
+      await tx.insert(orderEvents).values({ orderId: made.id, type: 'note', message: `From quotation ${quoteNumber(q.number)} (quoted prices)${staff ? `, placed by ${staff.name} logged in as the customer` : ''}`, adminUserId: staff?.id ?? null });
       return made;
     });
   } catch (err) {

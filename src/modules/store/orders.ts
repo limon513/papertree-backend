@@ -3,13 +3,13 @@ import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { and, asc, eq, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.ts';
-import { customers, deliveryZones, onlinePayments, orderItems, orders } from '../../db/schema/index.ts';
+import { customers, deliveryZones, onlinePayments, orderEvents, orderItems, orders } from '../../db/schema/index.ts';
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.ts';
 import { QUEUES, sendJob } from '../../jobs/boss.ts';
 import { logger } from '../../lib/logger.ts';
 import { codeGuard, CouponError, tooManyTries } from '../admin/coupons/service.ts';
 import { createOrder } from '../admin/orders/service.ts';
-import { currentCustomer, signIn } from './account/session.ts';
+import { actingStaff, currentCustomer, signIn } from './account/session.ts';
 import { imagesById } from './catalog.ts';
 import { isApprovedBusiness } from '../admin/customers/service.ts';
 import { getSettings } from '../admin/settings/service.ts';
@@ -85,6 +85,8 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
   }
   // A signed-in shopper's order is theirs, whatever phone they give for this delivery.
   const me = await currentCustomer(req);
+  // A staff member logged in as the customer: the order is marked as entered by them.
+  const staff = me ? await actingStaff(req) : null;
   const [byPhone] = me ? [] : await db.select({ isBlocked: customers.isBlocked }).from(customers).where(eq(customers.phone, phone));
   if (byPhone?.isBlocked) throw forbidden('We cannot take this order on the website. Please call us to order.');
   // Too many wrong codes from this connection: codes are not even looked up for a while.
@@ -107,9 +109,10 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
         staffNote: null,
         couponCode: couponCode || null,
       },
-      null,
+      staff?.id ?? null,
       { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url'), customerId: me?.id, enforceMinimum: wholesale, onlyForSale: true },
     );
+    if (staff) await db.insert(orderEvents).values({ orderId: order.id, type: 'note', message: `Placed on the website by ${staff.name}, logged in as the customer`, adminUserId: staff.id });
     // A first order from a new number signs them in, so the next order is quicker. Such a sign-in ends
     // as soon as someone confirms that number with a code.
     if (!me && order.newCustomer) await signIn(res, req, order.customerId, 'order');

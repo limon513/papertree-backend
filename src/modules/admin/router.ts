@@ -1,6 +1,6 @@
 import { pushCampaignsRouter } from './push/routes.ts';
 import { Router } from 'express';
-import { requireAdmin, requireModule, requireSuperAdmin } from '../../middleware/admin-auth.ts';
+import { requireAdmin, requireLoginAs, requireModule, requireSuperAdmin } from '../../middleware/admin-auth.ts';
 import { authRouter } from './auth/routes.ts';
 import { brandsRouter } from './brands/routes.ts';
 import { labelsRouter } from './labels/routes.ts';
@@ -20,6 +20,7 @@ import { productsRouter, stockLocationsRouter } from './products/routes.ts';
 import { productRequestsRouter } from './requests/routes.ts';
 import { supplierLeadsRouter } from './requests/suppliers.ts';
 import { customRequestsAdminRouter } from './requests/custom.ts';
+import { loginAsRouter } from './customers/login-as.ts';
 import { rolesRouter } from './roles/routes.ts';
 import { searchReportRouter, synonymsRouter } from './search/routes.ts';
 import { placesRouter, settingsRouter, storeInfoRouter } from './settings/routes.ts';
@@ -52,6 +53,7 @@ adminRouter.use('/search-report', requireAdmin, requireModule('reports'), search
 adminRouter.use('/product-requests', requireAdmin, requireModule('leads'), productRequestsRouter);
 adminRouter.use('/supplier-leads', requireAdmin, requireModule('leads'), supplierLeadsRouter);
 adminRouter.use('/custom-requests', requireAdmin, requireModule('leads'), customRequestsAdminRouter);
+adminRouter.use('/login-as', requireAdmin, requireLoginAs, loginAsRouter);
 adminRouter.use('/banners', requireAdmin, requireModule('content'), bannersRouter);
 adminRouter.use('/pages', requireAdmin, requireModule('content'), pagesRouter);
 adminRouter.use('/coupons', requireAdmin, requireModule('marketing'), couponsRouter);

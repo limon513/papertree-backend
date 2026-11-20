@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { adminUsers } from './admin.ts';
 import { id, ref, timestamps, timestamptz } from './_helpers.ts';
 
 export type CustomerType = 'retail' | 'business';
@@ -51,6 +52,8 @@ export const customers = pgTable(
     /** Their Google account photo: only the address, shown straight from Google (nothing stored here). */
     avatarUrl: text('avatar_url'),
     lastSignInAt: timestamptz('last_sign_in_at'),
+    /** Last visit to the website while signed in (staff visits not counted). */
+    lastSeenAt: timestamptz('last_seen_at'),
     /** Push notifications they want (on the devices where they allowed them): order updates, offers, saved items. */
     pushOrders: boolean('push_orders').notNull().default(true),
     pushOffers: boolean('push_offers').notNull().default(true),
@@ -103,7 +106,12 @@ export const customerSessions = pgTable(
      * How they signed in. 'order' = signed in by placing their first order (the phone was not checked):
      * such sessions end when someone confirms the phone with a code.
      */
-    via: text('via').$type<'code' | 'google' | 'order'>().notNull().default('code'),
+    via: text('via').$type<'code' | 'google' | 'order' | 'staff'>().notNull().default('code'),
+    /**
+     * 'staff': a staff member logged in as this customer to help them (30 minutes, never renewed;
+     * orders placed are marked with their name).
+     */
+    actingAdminId: ref('acting_admin_id').references(() => adminUsers.id, { onDelete: 'cascade' }),
     ip: text('ip'),
     userAgent: text('user_agent'),
     expiresAt: timestamptz('expires_at').notNull(),
@@ -130,4 +138,43 @@ export const customerLoginCodes = pgTable(
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [index('customer_login_codes_phone_idx').on(t.phone, t.createdAt)],
+);
+
+/** A one-time link for a staff member to log in as a customer on the website (2 minutes, once). */
+export const customerLoginAsTokens = pgTable('customer_login_as_tokens', {
+  /** Hash of the token in the link. */
+  id: text('id').primaryKey(),
+  customerId: ref('customer_id')
+    .notNull()
+    .references(() => customers.id, { onDelete: 'cascade' }),
+  adminUserId: ref('admin_user_id')
+    .notNull()
+    .references(() => adminUsers.id, { onDelete: 'cascade' }),
+  expiresAt: timestamptz('expires_at').notNull(),
+  usedAt: timestamptz('used_at'),
+  createdAt: timestamptz('created_at').notNull().defaultNow(),
+});
+
+export const ACTIVITY_KINDS = ['visit', 'product', 'search'] as const;
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+
+/**
+ * What signed-in customers do on the website, for staff to understand them: visits (with the device),
+ * products looked at, searches. Never while staff are logged in as them. Kept 90 days.
+ */
+export const customerActivity = pgTable(
+  'customer_activity',
+  {
+    id: id(),
+    customerId: ref('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<ActivityKind>().notNull(),
+    productId: ref('product_id'),
+    query: text('query'),
+    /** "Phone · Chrome", "Computer · Edge". */
+    device: text('device'),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('customer_activity_customer_idx').on(t.customerId, t.createdAt), index('customer_activity_created_idx').on(t.createdAt)],
 );

@@ -7,6 +7,7 @@ import { checkInBackground } from '../modules/admin/orders/courier-record.ts';
 import { checkTry } from '../modules/payments/service.ts';
 import { sendBatch, startCampaign } from '../modules/push/campaigns.ts';
 import { runWishlistAlerts } from '../modules/push/wishlist-alerts.ts';
+import { cleanUpActivity } from '../modules/store/activity.ts';
 import type { OrderUpdate } from '../modules/store/order-updates.ts';
 import { QUEUES, startBoss } from './boss.ts';
 
@@ -44,5 +45,9 @@ export async function startWorkers() {
     await runWishlistAlerts();
   });
   await boss.schedule(QUEUES.wishlistAlerts, '0 11 * * *', {}, { tz: 'Asia/Dhaka' });
+  await boss.work(QUEUES.activityCleanup, { batchSize: 1, pollingIntervalSeconds: 60 }, async () => {
+    await cleanUpActivity();
+  });
+  await boss.schedule(QUEUES.activityCleanup, '0 3 * * *', {}, { tz: 'Asia/Dhaka' });
   logger.info('Background workers started');
 }
