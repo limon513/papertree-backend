@@ -267,6 +267,13 @@
       "when": 1795154353653,
       "tag": "0037_quotation_revisions",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1795155680848,
+      "tag": "0038_custom_orders",
+      "breakpoints": true
     }
   ]
 }

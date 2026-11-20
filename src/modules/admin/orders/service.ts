@@ -60,6 +60,7 @@ export async function loadVariants(tx: Tx | typeof db, ids: number[], locationId
       productId: products.id,
       name: products.name,
       status: products.status,
+      isCustom: products.isCustom,
       option1: productVariants.option1,
       option2: productVariants.option2,
       option3: productVariants.option3,
@@ -179,6 +180,8 @@ export interface OrderContext {
   customerId?: number | null;
   /** Website wholesale orders: the business's minimum order must be reached (staff may go below it). */
   enforceMinimum?: boolean;
+  /** Website checkout: only products for sale (staff may sell a draft; quotations check their own). */
+  onlyForSale?: boolean;
   /** The order being edited: its coupon is kept (no new use counted) while the items still qualify. */
   existing?: { id: number; couponId: number | null; couponCode: string | null; customerId: number | null } | null;
 }
@@ -229,6 +232,7 @@ async function build(tx: Tx, input: OrderInput, locationId: number, heldNow = ne
   for (const line of lines) {
     const v = variants.get(line.variantId);
     if (!v) throw badRequest('A product in the order no longer exists', { [`items.${line.index}.variantId`]: 'This product no longer exists' });
+    if (ctx.onlyForSale && v.status !== 'active') throw badRequest(`${v.name} is no longer for sale`, { [`items.${line.index}.variantId`]: 'No longer for sale' });
     if (v.trackStock && !v.allowBackorder) {
       const available = v.stock + (heldNow.get(v.variantId) ?? 0);
       if (line.quantity > available) {
@@ -383,6 +387,8 @@ export interface CreateOrderExtras {
   customerId?: number;
   /** Website wholesale orders: refuse an order below the business's minimum. */
   enforceMinimum?: boolean;
+  /** Website checkout: refuse products that are not for sale (drafts, archived, custom). */
+  onlyForSale?: boolean;
 }
 
 /**
@@ -392,7 +398,7 @@ export interface CreateOrderExtras {
 export async function createOrder(input: OrderInput, adminUserId: number | null, extras: CreateOrderExtras = {}, outer?: Tx) {
   const run = async (tx: Tx) => {
     const locationId = input.locationId ?? (await defaultLocationId(tx));
-    const built = await build(tx, input, locationId, undefined, { customerId: extras.customerId ?? null, enforceMinimum: extras.enforceMinimum });
+    const built = await build(tx, input, locationId, undefined, { customerId: extras.customerId ?? null, enforceMinimum: extras.enforceMinimum, onlyForSale: extras.onlyForSale });
     if (extras.expectedTotal !== undefined && Math.abs(extras.expectedTotal - built.values.total) > 0.009) {
       throw new AppError(409, 'PRICE_CHANGED', `Prices changed: the total is now ${taka(built.values.total)}. Please check your order and place it again.`);
     }

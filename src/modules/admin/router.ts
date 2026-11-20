@@ -19,6 +19,7 @@ import { quotationsRouter } from './quotations/routes.ts';
 import { productsRouter, stockLocationsRouter } from './products/routes.ts';
 import { productRequestsRouter } from './requests/routes.ts';
 import { supplierLeadsRouter } from './requests/suppliers.ts';
+import { customRequestsAdminRouter } from './requests/custom.ts';
 import { rolesRouter } from './roles/routes.ts';
 import { searchReportRouter, synonymsRouter } from './search/routes.ts';
 import { placesRouter, settingsRouter, storeInfoRouter } from './settings/routes.ts';
@@ -50,6 +51,7 @@ adminRouter.use('/search-synonyms', requireAdmin, requireModule('products'), syn
 adminRouter.use('/search-report', requireAdmin, requireModule('reports'), searchReportRouter);
 adminRouter.use('/product-requests', requireAdmin, requireModule('leads'), productRequestsRouter);
 adminRouter.use('/supplier-leads', requireAdmin, requireModule('leads'), supplierLeadsRouter);
+adminRouter.use('/custom-requests', requireAdmin, requireModule('leads'), customRequestsAdminRouter);
 adminRouter.use('/banners', requireAdmin, requireModule('content'), bannersRouter);
 adminRouter.use('/pages', requireAdmin, requireModule('content'), pagesRouter);
 adminRouter.use('/coupons', requireAdmin, requireModule('marketing'), couponsRouter);

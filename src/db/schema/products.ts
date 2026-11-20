@@ -70,6 +70,11 @@ export const products = pgTable(
      * when the order is confirmed). Such products do not track stock.
      */
     suppliedByBrand: boolean('supplied_by_brand').notNull().default(false),
+    /**
+     * Made for one customer (a custom order priced by staff on a quotation): never on the website and
+     * left out of the product list. Can still be quoted and ordered.
+     */
+    isCustom: boolean('is_custom').notNull().default(false),
     tags: text('tags').array().notNull().default([]),
     /** Approved reviews: their count and average rating (kept up to date when staff decide). */
     ratingCount: integer('rating_count').notNull().default(0),

@@ -108,7 +108,7 @@ storeOrdersRouter.post('/', orderLimiter, async (req, res) => {
         couponCode: couponCode || null,
       },
       null,
-      { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url'), customerId: me?.id, enforceMinimum: wholesale },
+      { expectedTotal, requestId, publicToken: randomBytes(18).toString('base64url'), customerId: me?.id, enforceMinimum: wholesale, onlyForSale: true },
     );
     // A first order from a new number signs them in, so the next order is quicker. Such a sign-in ends
     // as soon as someone confirms that number with a code.

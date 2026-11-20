@@ -113,6 +113,7 @@ async function detail(id: number) {
 // ---- Staff quotations ----
 
 const optional = (max: number) => z.string().trim().max(max).transform((s) => s || null).nullable().default(null);
+const quantity = z.number({ error: 'Enter the quantity' }).int({ error: 'Whole pieces only' }).min(1, { error: 'At least 1' }).max(99_999, { error: 'Too many' });
 export const staffQuotationBody = z
   .object({
     type: z.enum(['retail', 'wholesale']).default('retail').meta({ description: 'wholesale: wholesale prices; only for an approved business' }),
@@ -128,16 +129,29 @@ export const staffQuotationBody = z
     deliveryFee: z.number().min(0).max(100_000).nullable().default(null).meta({ description: 'Fixed delivery (0 = free); null = worked out when ordering' }),
     items: z
       .array(
-        z.object({
-          variantId: z.number().int().positive(),
-          quantity: z.number({ error: 'Enter the quantity' }).int({ error: 'Whole pieces only' }).min(1, { error: 'At least 1' }).max(99_999, { error: 'Too many' }),
-          /** A special price per piece. Left out: the product's price (and bulk discounts, retail). */
-          unitPrice: z.number({ error: 'Enter the price' }).min(0, { error: 'Not below 0' }).max(10_000_000).optional(),
-          bulk: z.boolean().optional(),
-        }),
+        z.union([
+          z.object({
+            variantId: z.number().int().positive(),
+            quantity,
+            /** A special price per piece. Left out: the product's price (and bulk discounts, retail). */
+            unitPrice: z.number({ error: 'Enter the price' }).min(0, { error: 'Not below 0' }).max(10_000_000).optional(),
+            bulk: z.boolean().optional(),
+          }),
+          // A custom item (made to order): its name, what it is, and the price staff agreed.
+          z.object({
+            custom: z.object({
+              name: z.string({ error: 'Name the custom item' }).trim().min(2, { error: 'Name the custom item' }).max(200),
+              details: z.string().trim().max(3000).transform((s) => s || null).nullable().default(null),
+            }),
+            quantity,
+            unitPrice: z.number({ error: 'Enter the price' }).min(0, { error: 'Not below 0' }).max(10_000_000),
+          }),
+        ]),
       )
       .min(1, { error: 'Add at least one product' })
       .max(100, { error: 'At most 100 lines' }),
+    /** The custom order request this answers (it becomes "quoted"). */
+    customRequestId: z.number().int().positive().nullable().default(null),
   })
   .meta({ id: 'StaffQuotationBody' });
 
@@ -157,7 +171,7 @@ async function ownerOf(input: z.infer<typeof staffQuotationBody>) {
 quotationsRouter.post('/', async (req, res) => {
   const input = staffQuotationBody.parse(req.body);
   const admin = currentAdmin(req);
-  const q = await createQuotation(input, { type: input.type, customerId: await ownerOf(input), source: 'staff', adminUserId: admin.id });
+  const q = await createQuotation(input, { type: input.type, customerId: await ownerOf(input), source: 'staff', adminUserId: admin.id, customRequestId: input.customRequestId });
   await audit(req, { action: 'quotation.create', entityType: 'quotation', entityId: q.id, after: { number: quoteNumber(q.number) } });
   res.status(201).json(await detail(q.id));
 });
@@ -167,7 +181,7 @@ quotationsRouter.post('/:id/revise', async (req, res) => {
   const id = parseId(req.params.id);
   const input = staffQuotationBody.parse(req.body);
   const admin = currentAdmin(req);
-  const q = await createQuotation(input, { type: input.type, customerId: await ownerOf(input), source: 'staff', adminUserId: admin.id, replaces: id });
+  const q = await createQuotation(input, { type: input.type, customerId: await ownerOf(input), source: 'staff', adminUserId: admin.id, replaces: id, customRequestId: input.customRequestId });
   await audit(req, { action: 'quotation.revise', entityType: 'quotation', entityId: q.id, after: { number: quoteNumber(q.number), replaces: id } });
   res.status(201).json(await detail(q.id));
 });
