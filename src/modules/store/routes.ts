@@ -28,6 +28,7 @@ import { reviewsRouter } from './reviews.ts';
 import { wishlistRouter } from './wishlist.ts';
 import { pushRouter, pushWebConfig } from './push.ts';
 import { photoSearchReady, photoSearchRouter } from './photo-search.ts';
+import { personalRouter } from './personal.ts';
 import { similarTo } from '../photo-search/service.ts';
 
 /** Public API for the website. Mounted at /v1/store. Shoppers may sign in (account routes). */
@@ -680,4 +681,5 @@ storeRouter.use(reviewsRouter);
 storeRouter.use(wishlistRouter);
 storeRouter.use(pushRouter);
 storeRouter.use(photoSearchRouter);
+storeRouter.use(personalRouter);
 storeRouter.use(storeSeoRouter);
