@@ -20,6 +20,8 @@ export const productRequests = pgTable(
     details: text('details').notNull(),
     /** The search that found nothing, when sent from search. */
     query: text('query'),
+    /** A photo of what they want (sent from search by photo): storage key. */
+    photoKey: text('photo_key'),
     status: text('status').$type<ProductRequestStatus>().notNull().default('new'),
     /** Staff's note: "ordered from supplier", "told them it comes next week". */
     staffNote: text('staff_note'),

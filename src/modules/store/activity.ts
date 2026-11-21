@@ -26,7 +26,7 @@ export function deviceOf(userAgent: string | undefined) {
 }
 
 /** The customer whose activity this is, or null (a guest, or staff logged in as them). */
-async function whose(req: Request) {
+export async function whose(req: Request) {
   const c = await currentCustomer(req);
   if (!c || (await actingStaff(req))) return null;
   return c;

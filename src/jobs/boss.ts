@@ -31,6 +31,8 @@ export const QUEUES = {
   wishlistAlerts: 'wishlist-alerts',
   /** No data. Once a day (3 am Dhaka): customer activity older than 90 days goes. */
   activityCleanup: 'activity-cleanup',
+  /** No data. Every 10 minutes (and at start): product pictures not yet ready for search by photo. */
+  photoIndex: 'photo-index',
 } as const;
 
 let started: Promise<PgBoss> | null = null;
@@ -57,6 +59,8 @@ export function startBoss() {
     // Daily, mid-morning in Bangladesh; one run at a time (a run that failed is tried once more).
     await boss.createQueue(QUEUES.wishlistAlerts, { expireInSeconds: 1800, retryLimit: 1, retryDelay: 600, policy: 'singleton' });
     await boss.createQueue(QUEUES.activityCleanup, { expireInSeconds: 1800, retryLimit: 1, retryDelay: 600, policy: 'singleton' });
+    // One run at a time; a big catalogue is done in runs of 200 pictures.
+    await boss.createQueue(QUEUES.photoIndex, { expireInSeconds: 1800, retryLimit: 1, retryDelay: 300, policy: 'singleton' });
     return boss;
   })();
   return started;

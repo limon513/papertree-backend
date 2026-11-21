@@ -22,3 +22,4 @@ export const forbidden = (message = 'You do not have access to this') =>
   new AppError(403, 'FORBIDDEN', message);
 export const notFound = (message = 'Not found') => new AppError(404, 'NOT_FOUND', message);
 export const conflict = (message: string, details?: unknown) => new AppError(409, 'CONFLICT', message, details);
+export const serviceUnavailable = (message: string) => new AppError(503, 'UNAVAILABLE', message);

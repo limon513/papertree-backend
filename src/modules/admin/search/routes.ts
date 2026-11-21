@@ -6,6 +6,9 @@ import { audit } from '../../../lib/audit.ts';
 import { conflict, notFound } from '../../../lib/errors.ts';
 import { parseId } from '../../../lib/ids.ts';
 import { forgetSearchKnowledge } from '../../store/search.ts';
+import { env } from '../../../config/env.ts';
+import { storage } from '../../../lib/storage.ts';
+import { CLOSE_MATCH, PHOTO_KEEP_DAYS, pictureCounts } from '../../photo-search/service.ts';
 import { searchReportQuery, synonymBody, type SynonymInput } from './schemas.ts';
 
 // ---- Synonyms (Products section) ----
@@ -101,4 +104,56 @@ searchReportRouter.get('/', async (req, res) => {
     noResults: none.map(rowView),
     corrected: fixed.map((r) => ({ ...rowView(r), correctedTo: r.corrected_to! })),
   });
+});
+
+/**
+ * Search by photo: how many, how many found the same or a close item, and the photos that found
+ * nothing close (kept 30 days: what shoppers want that the shop lacks). Also how many product
+ * pictures are ready for it.
+ */
+searchReportRouter.get('/photos', async (req, res) => {
+  const { days } = searchReportQuery.parse(req.query);
+  const since = sql`now() - make_interval(days => ${days})`;
+  const [{ rows: totals }, { rows: missed }, pictures] = await Promise.all([
+    db.execute<{ searches: string; matched: string; cropped: string }>(sql`
+      select count(*) as searches, count(*) filter (where matched) as matched, count(*) filter (where cropped) as cropped
+      from photo_searches where created_at >= ${since}`),
+    db.execute<{ id: string; created_at: Date; best_score: number | null; results: number; device: string | null; photo_key: string; name: string | null; slug: string | null }>(sql`
+      select ps.id, ps.created_at, ps.best_score, ps.results, ps.device, ps.photo_key, p.name, p.slug
+      from photo_searches ps left join products p on p.id = ps.best_product_id
+      where ps.photo_key is not null and ps.created_at >= ${since}
+      order by ps.created_at desc limit 60`),
+    pictureCounts(),
+  ]);
+  const t = totals[0]!;
+  res.json({
+    days,
+    enabled: env.PHOTO_SEARCH,
+    keepDays: PHOTO_KEEP_DAYS,
+    closeMatch: CLOSE_MATCH,
+    pictures,
+    totals: { searches: Number(t.searches), matched: Number(t.matched), cropped: Number(t.cropped) },
+    noMatch: missed.map((r) => ({
+      id: Number(r.id),
+      at: new Date(r.created_at),
+      photoUrl: storage.url(r.photo_key),
+      bestScore: r.best_score,
+      results: r.results,
+      device: r.device,
+      nearest: r.slug ? { name: r.name!, slug: r.slug } : null,
+    })),
+  });
+});
+
+/** Removes a kept photo at once (for example when it shows a person). */
+searchReportRouter.delete('/photos/:id', async (req, res) => {
+  const id = parseId(req.params.id);
+  const { rows } = await db.execute<{ photo_key: string | null }>(sql`select photo_key from photo_searches where id = ${id}`);
+  if (!rows[0]) throw notFound('Photo search not found');
+  if (rows[0].photo_key) {
+    await storage.remove(rows[0].photo_key);
+    await db.execute(sql`update photo_searches set photo_key = null where id = ${id}`);
+    await audit(req, { action: 'photo_search.photo_removed', entityType: 'photo_search', entityId: id });
+  }
+  res.status(204).end();
 });
