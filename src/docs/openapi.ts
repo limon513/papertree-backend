@@ -20,6 +20,7 @@ import { quotationsDocs } from '../modules/quotations/docs.ts';
 import { customRequestsDocs } from '../modules/admin/requests/custom-docs.ts';
 import { loginAsDocs } from '../modules/admin/customers/login-as-docs.ts';
 import { photoSearchDocs } from '../modules/photo-search/docs.ts';
+import { personalDocs } from '../modules/store/personal.ts';
 import { contentDocs } from '../modules/admin/content/docs.ts';
 import { couponsDocs } from '../modules/admin/coupons/docs.ts';
 import { integrationsDocs } from '../modules/admin/integrations/docs.ts';
@@ -66,6 +67,7 @@ export function buildOpenApiDocument() {
       ...customRequestsDocs,
       ...loginAsDocs,
       ...photoSearchDocs,
+      ...personalDocs,
       ...contentDocs,
       ...couponsDocs,
       ...integrationsDocs,
