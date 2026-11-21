@@ -281,6 +281,13 @@
       "when": 1795158031774,
       "tag": "0039_login_as_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1795193784109,
+      "tag": "0040_photo_search",
+      "breakpoints": true
     }
   ]
 }

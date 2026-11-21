@@ -8,6 +8,8 @@ import { checkTry } from '../modules/payments/service.ts';
 import { sendBatch, startCampaign } from '../modules/push/campaigns.ts';
 import { runWishlistAlerts } from '../modules/push/wishlist-alerts.ts';
 import { cleanUpActivity } from '../modules/store/activity.ts';
+import { indexPictures, removeOldPhotos } from '../modules/photo-search/service.ts';
+import { env } from '../config/env.ts';
 import type { OrderUpdate } from '../modules/store/order-updates.ts';
 import { QUEUES, startBoss } from './boss.ts';
 
@@ -47,7 +49,17 @@ export async function startWorkers() {
   await boss.schedule(QUEUES.wishlistAlerts, '0 11 * * *', {}, { tz: 'Asia/Dhaka' });
   await boss.work(QUEUES.activityCleanup, { batchSize: 1, pollingIntervalSeconds: 60 }, async () => {
     await cleanUpActivity();
+    await removeOldPhotos();
   });
   await boss.schedule(QUEUES.activityCleanup, '0 3 * * *', {}, { tz: 'Asia/Dhaka' });
+  if (env.PHOTO_SEARCH) {
+    // New product pictures become searchable by photo within about 10 minutes.
+    await boss.work(QUEUES.photoIndex, { batchSize: 1, pollingIntervalSeconds: 30 }, async () => {
+      const { more } = await indexPictures();
+      if (more) await boss.send(QUEUES.photoIndex, {});
+    });
+    await boss.schedule(QUEUES.photoIndex, '*/10 * * * *', {});
+    await boss.send(QUEUES.photoIndex, {});
+  }
   logger.info('Background workers started');
 }

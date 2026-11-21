@@ -6,3 +6,5 @@ dist/
 *.log
 .DS_Store
 uploads/
+# Image model files for search by photo (downloaded on first use)
+models/

@@ -18,3 +18,4 @@ export * from './wishlist.ts';
 export * from './push.ts';
 
 export * from './quotations.ts';
+export * from './photo-search.ts';

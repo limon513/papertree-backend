@@ -20,6 +20,11 @@ const schema = z
       .enum(['true', 'false'])
       .default('true')
       .transform((v) => v === 'true'),
+    /** Search by photo (an image model on this server, about 250 MB of memory while in use). false hides it. */
+    PHOTO_SEARCH: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
     /** Seconds before a customer hears that their order moved on: time for staff to undo a wrong click. */
     ORDER_MESSAGE_DELAY: z.coerce.number().int().min(0).max(3600).default(60),
     /** Steadfast courier API (tests point it at a fake server). */

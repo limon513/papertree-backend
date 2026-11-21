@@ -5,6 +5,7 @@ import { adminUsers, customers, productRequests } from '../../../db/schema/index
 import { audit } from '../../../lib/audit.ts';
 import { notFound } from '../../../lib/errors.ts';
 import { parseId } from '../../../lib/ids.ts';
+import { storage } from '../../../lib/storage.ts';
 import { productRequestListQuery, productRequestUpdate } from './schemas.ts';
 
 /** "Request this product" from the website. Mounted behind requireAdmin + requireModule('leads'). */
@@ -20,6 +21,7 @@ const select = () =>
       phone: productRequests.phone,
       details: productRequests.details,
       query: productRequests.query,
+      photoKey: productRequests.photoKey,
       status: productRequests.status,
       staffNote: productRequests.staffNote,
       handledBy: adminUsers.name,
@@ -30,6 +32,9 @@ const select = () =>
     .from(productRequests)
     .leftJoin(adminUsers, eq(adminUsers.id, productRequests.handledBy))
     .leftJoin(customers, eq(customers.phone, productRequests.phone));
+
+/** A request as staff see it: a photo (sent from search by photo) as its address. */
+const view = ({ photoKey, ...r }: Awaited<ReturnType<typeof select>>[number]) => ({ ...r, photoUrl: photoKey ? storage.url(photoKey) : null });
 
 productRequestsRouter.get('/', async (req, res) => {
   const q = productRequestListQuery.parse(req.query);
@@ -45,7 +50,7 @@ productRequestsRouter.get('/', async (req, res) => {
     db.select({ status: productRequests.status, n: count() }).from(productRequests).groupBy(productRequests.status),
   ]);
   const by = Object.fromEntries(counted.map((c) => [c.status, c.n]));
-  res.json({ items, total: totals[0]?.total ?? 0, page: q.page, pageSize: PAGE_SIZE, counts: { new: by.new ?? 0, done: by.done ?? 0 } });
+  res.json({ items: items.map(view), total: totals[0]?.total ?? 0, page: q.page, pageSize: PAGE_SIZE, counts: { new: by.new ?? 0, done: by.done ?? 0 } });
 });
 
 productRequestsRouter.put('/:id', async (req, res) => {
@@ -66,5 +71,5 @@ productRequestsRouter.put('/:id', async (req, res) => {
     .where(eq(productRequests.id, id));
   await audit(req, { action: 'product_request.update', entityType: 'product_request', entityId: id, before: { status: before.status, staffNote: before.staffNote }, after: input });
   const [row] = await select().where(eq(productRequests.id, id));
-  res.json(row);
+  res.json(view(row!));
 });

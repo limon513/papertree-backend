@@ -27,6 +27,8 @@ import { trackRouter } from './track.ts';
 import { reviewsRouter } from './reviews.ts';
 import { wishlistRouter } from './wishlist.ts';
 import { pushRouter, pushWebConfig } from './push.ts';
+import { photoSearchReady, photoSearchRouter } from './photo-search.ts';
+import { similarTo } from '../photo-search/service.ts';
 
 /** Public API for the website. Mounted at /v1/store. Shoppers may sign in (account routes). */
 export const storeRouter = Router();
@@ -44,7 +46,7 @@ const and_ = (parts: (SQL | undefined)[]) => {
 // ---- Menus, footer, store details ----
 
 storeRouter.get('/catalog', async (_req, res) => {
-  const [cats, brandRows, store, google, footerPages, checkout, online, push] = await Promise.all([
+  const [cats, brandRows, store, google, footerPages, checkout, online, push, photoSearch] = await Promise.all([
     activeCategories(),
     db.select().from(brands).where(eq(brands.isActive, true)).orderBy(sql`${brands.isFeatured} desc`, asc(sql`lower(${brands.name})`)),
     getSettings('store'),
@@ -53,6 +55,7 @@ storeRouter.get('/catalog', async (_req, res) => {
     getSettings('checkout'),
     onlinePaymentReady(),
     pushWebConfig(),
+    photoSearchReady(),
   ]);
   const g = google.settings;
   const images = await imagesById([...cats.all.map((c) => c.imageId), ...brandRows.map((b) => b.imageId), store.logoImageId]);
@@ -85,6 +88,8 @@ storeRouter.get('/catalog', async (_req, res) => {
     onlinePayment: online,
     // Push notifications: the Firebase web settings to turn them on (public by design). null when off.
     push,
+    // Search by photo is on and product pictures are ready for it (the camera button shows).
+    photoSearch,
     // The shop's wholesale terms, for the Wholesale page (the same ones checkout shows a business).
     wholesale: {
       advancePercent: checkout.wholesale.advancePercent,
@@ -430,6 +435,11 @@ storeRouter.get('/products/:slug', async (req, res) => {
     related = await cards(and_([inCategories([c.id, ...cats.descendants(c.id)]), sql`c.id <> ${product.id}`, sql`c.in_stock`]), SORTS.popular, 12);
     if (related.items.length >= 4) break;
   }
+  // "Similar items": products whose pictures look like this one's (search by photo), not already above.
+  const relatedIds = new Set(related.items.map((r) => r.id));
+  const similar = await similarTo(product.id, 24)
+    .then((r) => r.items.filter((i) => !relatedIds.has(i.id)).slice(0, 12))
+    .catch(() => []);
 
   cache(res, 60).json({
     id: product.id,
@@ -471,6 +481,8 @@ storeRouter.get('/products/:slug', async (req, res) => {
       };
     }),
     related: related.items,
+    /** Products that look like this one, closest first (with score and match level). */
+    similar,
   });
 });
 
@@ -667,4 +679,5 @@ storeRouter.use(trackRouter);
 storeRouter.use(reviewsRouter);
 storeRouter.use(wishlistRouter);
 storeRouter.use(pushRouter);
+storeRouter.use(photoSearchRouter);
 storeRouter.use(storeSeoRouter);

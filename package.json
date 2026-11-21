@@ -20,6 +20,7 @@
     "worker": "node --env-file-if-exists=.env src/worker.ts"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.2",
     "@node-rs/argon2": "^2.2.2",
     "@opentelemetry/api": "1.10.0",
     "@scalar/express-api-reference": "^0.10.34",
